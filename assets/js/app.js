@@ -203,12 +203,13 @@
       if (p.dev) badges += '<span class="badge dev">DEV</span>';
     }
 
-    // 图片 / 视频：直接用原始地址展示（媒体托管在源站 CDN，浏览器直连）
-    // 已确认不可达的源（youmind / twimg）不再发起请求，直接留渐变底，避免满屏破图
-    var deadCover = /youmind\.com|twimg\.com/.test(p.cover || '');
-    var coverImg = (p.cover && !deadCover)
+    // 封面：真实原图经 wsrv.nl 代理加载（国内可访问）；失败时回落到本地分类图
+    var fb = 'assets/img/cat-' + p.cat + '.jpg';
+    var coverImg = p.cover
       ? '<img class="cover" loading="lazy" src="' + esc(p.cover) + '"' +
-        ' onload="this.parentNode.classList.add(\'has-img\')" />'
+        ' data-fb="' + esc(fb) + '"' +
+        ' onload="this.parentNode.classList.add(\'has-img\')"' +
+        ' onerror="this.onerror=null;this.src=this.getAttribute(\'data-fb\')" />'
       : '';
     // 视频：悬停时才挂载 src 播放，避免一次性拉取大量视频
     var hoverVid = (p.kind === 'video' && p.videoUrl)
@@ -290,16 +291,17 @@
     pills.push('<span class="pill">' + fmtNum(p.chars) + ' 字</span>');
     $('#mMeta').innerHTML = pills.join('');
 
-    // 媒体区：视频优先播放，其次封面（均用原始地址直连展示）
-    var deadCover = /youmind\.com|twimg\.com/.test(p.cover || '');
+    // 媒体区：视频优先播放，其次封面（原图经 wsrv.nl 代理；失败回落本地分类图）
     var media = $('#mMedia');
+    var mfb = 'assets/img/cat-' + p.cat + '.jpg';
     if (p.kind === 'video' && p.videoUrl) {
       media.innerHTML = '<video class="preview-video" controls playsinline preload="metadata" ' +
-        (p.cover && !deadCover ? 'poster="' + esc(p.cover) + '" ' : '') +
+        (p.cover ? 'poster="' + esc(p.cover) + '" ' : '') +
         'src="' + esc(p.videoUrl) + '"></video>';
-    } else if (p.cover && !deadCover) {
+    } else if (p.cover) {
       media.innerHTML = '<img class="preview" src="' + esc(p.cover) + '" ' +
-        'onerror="this.parentNode.innerHTML=\'<div class=&quot;preview-fail&quot;>预览图暂时无法加载</div>\'" />';
+        'data-fb="' + esc(mfb) + '" ' +
+        'onerror="this.onerror=null;this.src=this.getAttribute(\'data-fb\')" />';
     } else {
       media.innerHTML = '';
     }
