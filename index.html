@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>白日梦AI生成库 · 图片 &amp; 视频提示词库</title>
+<meta name="description" content="图片与视频提示词库：图片 14898 条 + 视频 1040 条（含可播放视频）+ 文本 4402 条。全部开放可看、自由复制。" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%236366f1'/%3E%3Cpath d='M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z' fill='white'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+
+<header class="header">
+  <div class="container nav-bar">
+    <a href="#" class="logo" id="logoLink">
+      <span class="logo-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" fill="#fff"/></svg></span>
+      <span class="logo-text">白日梦AI生成库<small>图片 · 视频 · 提示词</small></span>
+    </a>
+    <div class="nav-right">
+      <a class="btn btn-ghost" href="#about" id="aboutLink">使用说明</a>
+    </div>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="container">
+    <h1>图片 &amp; 视频提示词库 · 全部开放可看</h1>
+    <p class="hero-sub">
+      <b id="heroImage">14898</b> 条图片 + <b id="heroVideo">1040</b> 条视频（<b id="heroVideoPlay">812</b> 条可播放）·
+      中文 <b id="heroZh">—</b> 条 · 无付费墙，点开即可复制
+    </p>
+    <div class="search-wrapper">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input type="text" class="search-input" id="searchInput" placeholder="搜画面、场景、关键词，例如：电影感 / 口播 / 产品展示 / 分镜" autocomplete="off" />
+      <button class="search-btn" id="searchBtn">搜一下</button>
+    </div>
+    <div class="popular-links" id="popularLinks"></div>
+  </div>
+</section>
+
+<div class="tabbar">
+  <div class="container tabbar-inner">
+    <button class="tab active" data-tab="image">图片提示词 <i id="tabImageCnt">—</i></button>
+    <button class="tab" data-tab="video">视频提示词 <i id="tabVideoCnt">—</i></button>
+    <button class="tab" data-tab="text">文本提示词 <i id="tabTextCnt">—</i></button>
+    <div class="tabbar-spacer"></div>
+    <div class="seg" id="langGroup">
+      <button data-lang="" class="active">全部</button>
+      <button data-lang="zh">中文</button>
+      <button data-lang="en">English</button>
+    </div>
+    <div class="seg" id="sortGroup">
+      <button data-sort="default" class="active">默认</button>
+      <button data-sort="long">最详细</button>
+      <button data-sort="short">最精简</button>
+    </div>
+  </div>
+</div>
+
+<div class="categories-bar">
+  <div class="container">
+    <div class="categories-scroll" id="categoriesScroll"></div>
+  </div>
+</div>
+
+<main class="container">
+  <div class="toolbar">
+    <h2 id="listTitle">全部提示词<span class="result-count" id="resultCount"></span></h2>
+    <span class="hint" id="hint"></span>
+  </div>
+
+  <div class="loading" id="loading" style="display:none">
+    <span class="spinner"></span><span id="loadingText">加载中…</span>
+  </div>
+
+  <div class="grid-container" id="grid"></div>
+  <div class="empty" id="empty" style="display:none">
+    <strong>没有匹配的提示词</strong>
+    换个关键词或分类试试
+  </div>
+  <div class="load-more" id="loadMoreWrap" style="display:none">
+    <button id="loadMoreBtn">加载更多</button>
+  </div>
+</main>
+
+<footer class="site-footer" id="about">
+  <div class="container">
+    <div class="footer-stats">
+      <div class="footer-stat"><b id="statTotal">0</b><span>提示词总数</span></div>
+      <div class="footer-stat"><b id="statVideo">0</b><span>视频提示词</span></div>
+      <div class="footer-stat"><b id="statPlay">0</b><span>可播放视频</span></div>
+      <div class="footer-stat"><b id="statCats">0</b><span>分类</span></div>
+    </div>
+    <div class="footer-note">
+      站内提示词均为开放内容，可自由查看、复制与使用；已做去重与低质过滤。
+      本站纯前端展示，无登录、无付费、无解锁。
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 白日梦AI生成库 · 提示词库</span>
+      <span>共 <b id="statTotal2">0</b> 条 · 点击卡片查看全文</span>
+      <span>由浅浅来风开发</span>
+    </div>
+  </div>
+</footer>
+
+<div class="modal-mask" id="modalMask">
+  <div class="modal" id="modal">
+    <div class="modal-head" id="modalHead">
+      <div class="m-cat" id="mCat"></div>
+      <h3 id="mTitle"></h3>
+      <button class="modal-close" id="modalClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="meta-row" id="mMeta"></div>
+      <div id="mMedia"></div>
+      <div id="mDesc"></div>
+      <div class="section-label" id="mBodyLabel">提示词全文</div>
+      <div id="mBody"></div>
+      <div class="copy-row">
+        <button class="btn btn-primary" id="copyBtn">复制全文</button>
+        <span class="copy-hint" id="copyHint"></span>
+      </div>
+      <div class="src-note" id="mSrc"></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" style="position:fixed;left:50%;bottom:38px;transform:translate(-50%,20px);background:rgba(22,24,29,.93);color:#fff;padding:10px 20px;border-radius:999px;font-size:13px;opacity:0;pointer-events:none;transition:.25s;z-index:999"></div>
+
+<script src="assets/js/app.js"></script>
+</body>
+</html>
