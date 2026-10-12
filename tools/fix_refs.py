@@ -3,8 +3,8 @@
 """就地修复分片里"畸形参考图路径"。
 
 背景: 原始提示词里偶见 `https://host/https://host/path` 这种畸形地址,
-旧解析把整段当路径, 于是分片里出现了
-`/m/v/https://youchuan-imagine.../webp/xxx` —— 域名被带出去了。
+旧解析把整段当路径, 于是分片里出现了 `/m/v/https://<主机>/webp/xxx`
+—— 主机名被带出去了。
 
 本脚本对 app/data 下的 gal_*/video_* 分片逐条扫描:
   - 嵌套 refs 里的路径含 `://` 或来源痕迹  -> 用 url_path 重新解析并替换
