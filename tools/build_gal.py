@@ -2,13 +2,14 @@
 # -*- coding: utf-8 -*-
 """
 把抓取结果转成站点分片。
-记录格式: [id, title, body, cat, desc, cover]
+记录格式: [id, title, body, cat, desc, cover, refs?]
   - id    : g-<hash>             (中性, 不含来源痕迹)
   - title : 从提示词派生的短标题(去参数)
-  - body  : 提示词全文
+  - body  : 提示词全文(已剥掉所有链接)
   - cat   : 中文分类 key
   - desc  : ""
   - cover : /m/<代号>/<路径>      (走图片代理, 浏览器看不到图床域名)
+  - refs  : [["sref","/m/i/x.png"], ...]  风格/角色参考图(有才带这一位)
 
 来源相关的域名/密钥统一从 sitecfg 读取, 本文件不含任何来源信息。
 """
@@ -112,16 +113,76 @@ def cover_path(raw):
     return (t, m.group(2)) if t else ("", "")
 
 
+def url_path(url):
+    """任意绝对地址 -> (代号, 路径)。取不到返回 ("", "")。"""
+    if not url or not isinstance(url, str):
+        return "", ""
+    m = re.match(r"^https?://([^/]+)/(.+)$", url.split("?")[0])
+    if not m:
+        return "", ""
+    t = HOST_TOKEN.get(m.group(1).lower())
+    return (t, m.group(2)) if t else ("", "")
+
+
+def url_path(url):
+    """任意绝对地址 -> (代号, 路径)。取不到返回 ("", "")。"""
+    if not url or not isinstance(url, str):
+        return "", ""
+    m = re.match(r"^https?://([^/]+)/(.+)$", url.split("?")[0])
+    if not m:
+        return "", ""
+    t = HOST_TOKEN.get(m.group(1).lower())
+    return (t, m.group(2)) if t else ("", "")
+
+
+# 风格/角色参考图: --sref/--cref/--dref/--oref <url>, 以及提示词开头直接给的输入图
+REF_FLAG_RE = re.compile(r"--(sref|cref|dref|oref)\s+(https?://\S+)", re.I)
+LEAD_URL_RE = re.compile(r"^(https?://\S+)")
+
+
+def refs_of(full_command):
+    """从原始提示词里取出风格参考图, 转成 /m/<代号>/<路径>。
+
+    只保留能走本站代理的主机; 外部第三方图床(midjourney 等)直接丢弃,
+    避免把来源暴露出去, 也避免代理变成任人使用的开放转发。
+    """
+    out, seen = [], set()
+    for m in REF_FLAG_RE.finditer(full_command or ""):
+        tok, path = url_path(m.group(2))
+        if tok:
+            u = "/m/%s/%s" % (tok, path)
+            if u not in seen:
+                seen.add(u)
+                out.append([m.group(1).lower(), u])
+    m = LEAD_URL_RE.match((full_command or "").strip())
+    if m:
+        tok, path = url_path(m.group(1))
+        if tok:
+            u = "/m/%s/%s" % (tok, path)
+            if u not in seen:
+                seen.add(u)
+                out.append(["ref", u])
+    return out
+
+
 def main():
     items = json.load(open(RAW, encoding="utf-8"))
     recs, catcnt, seen = [], collections.Counter(), set()
     dropped, noimg = 0, 0
+    skipped_stub = 0
+    nref = 0
     for it in items:
         oid = it.get("id")
         if not oid or oid in seen:
             continue
         seen.add(oid)
-        prompt = clean_prompt(it.get("fullCommand") or "")
+        # 图片流里 category=HotVideo 的条目只是视频缩略图占位;
+        # 真视频由 build_hotvideo.py 单独做进「视频提示词」标签, 画廊保持纯图片
+        if it.get("category") == "HotVideo":
+            skipped_stub += 1
+            continue
+        raw = it.get("fullCommand") or ""
+        prompt = clean_prompt(raw)
         if not prompt or has_leak(prompt):
             dropped += 1
             continue
@@ -130,9 +191,18 @@ def main():
         tok, path = cover_path(it.get("imgUrls"))
         if not tok:
             noimg += 1
-        recs.append(["g-" + hashlib.md5(oid.encode()).hexdigest()[:12],
-                     make_title(prompt), prompt, label, "",
-                     ("/m/%s/%s" % (tok, path)) if tok else ""])
+        rec = ["g-" + hashlib.md5(oid.encode()).hexdigest()[:12],
+               make_title(prompt), prompt, label, "",
+               ("/m/%s/%s" % (tok, path)) if tok else ""]
+        refs = refs_of(raw)
+        if refs:
+            rec.append(refs)
+            nref += 1
+        recs.append(rec)
+    if skipped_stub:
+        print("跳过图片流里的视频缩略图占位: %d 条" % skipped_stub)
+    if nref:
+        print("带风格参考图: %d 条" % nref)
     n = math.ceil(len(recs) / PER)
     for i in range(n):
         json.dump(recs[i * PER:(i + 1) * PER],
