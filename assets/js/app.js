@@ -12,7 +12,7 @@
 
   var PAGE_SIZE = 24;
   var state = {
-    tab: 'image', cat: '', q: '', lang: '', sort: 'default', page: 1, openId: '',
+    tab: 'gal', cat: '', q: '', lang: '', sort: 'default', page: 1, openId: '',
     text: [], image: [], video: [], gal: [], list: [], manifest: null, loading: {},
     chunks: { text: 0, image: 0, video: 0, gal: 0 },
     done: { text: false, image: false, video: false, gal: false },
@@ -33,12 +33,13 @@
   if (IMG_FALLBACK) {
     document.addEventListener('error', function (e) {
       var el = e.target;
-      if (!el || el.tagName !== 'IMG') return;
+      if (!el || (el.tagName !== 'IMG' && el.tagName !== 'VIDEO')) return;
       var src = el.getAttribute('src') || '';
       var main = IMG_BASE.replace(/\/+$/, '');
       var fb = IMG_FALLBACK.replace(/\/+$/, '');
       if (main && fb && src.indexOf(main) === 0 && src.indexOf(fb) !== 0) {
         el.setAttribute('src', fb + src.slice(main.length));
+        if (el.tagName === 'VIDEO') { try { el.load(); } catch (err) {} }
       }
     }, true);
   }
@@ -139,7 +140,7 @@
       videoUrl: r[6], model: r[7], author: r[8], lang: r[9],
       license: src[0], url: src[1], source: key,
       bodyLang: r[11], type: 'VIDEO', dev: false,
-      chars: r[2].length, isJson: looksJson(r[2])
+      chars: r[2].length, isJson: looksJson(r[2]), refs: r[12] || []
     };
   }
   function expandGal(r) {
@@ -150,7 +151,7 @@
       catLabel: c[0], catIcon: c[1], desc: r[4], cover: r[5],
       author: '', lang: 'zh', type: 'IMAGE', dev: false,
       chars: r[2].length, isJson: false, license: '', url: '',
-      source: 'gal', fb: 'assets/img/cat-others.jpg'
+      source: 'gal', fb: 'assets/img/cat-others.jpg', refs: r[6] || []
     };
   }
   var EXPAND = { text: expandText, image: expandImage, video: expandVideo, gal: expandGal };
@@ -211,7 +212,7 @@
     var q = state.q.trim().toLowerCase();
     var list = pool().filter(function (p) {
       if (state.cat && p.cat !== state.cat) return false;
-      if (state.tab !== 'image' && state.tab !== 'gal' && state.lang && p.lang !== state.lang) return false;
+      if (state.tab !== 'gal' && state.lang && p.lang !== state.lang) return false;
       if (!q) return true;
       return (p.title + ' ' + p.body + ' ' + p.catLabel + ' ' + (p.author || '') + ' ' +
         (p.desc || '') + ' ' + (p.model || ''))
@@ -240,16 +241,21 @@
 
     // 封面：经图片代理加载；失败时回落到本地分类图
     var fb = p.fb || ('assets/img/cat-' + p.cat + '.jpg');
+    var isVid = p.kind === 'video' && p.videoUrl;
     var coverImg = p.cover
       ? '<img class="cover" loading="lazy" src="' + esc(coverUrl(p.cover)) + '"' +
         ' data-fb="' + esc(fb) + '"' +
         ' onload="this.parentNode.classList.add(\'has-img\')"' +
         ' onerror="this.onerror=null;this.src=this.getAttribute(\'data-fb\')" />'
       : '';
-    // 视频：悬停时才挂载 src 播放，避免一次性拉取大量视频
-    var hoverVid = (p.kind === 'video' && p.videoUrl)
-      ? '<video class="hovervid" muted loop playsinline preload="none" data-src="' + esc(p.videoUrl) + '"></video>'
+    // 视频：有海报图时悬停才挂载播放；没有海报图就直接用视频首帧当封面
+    var hoverVid = isVid
+      ? (p.cover
+        ? '<video class="hovervid" muted loop playsinline preload="none" data-src="' + esc(coverUrl(p.videoUrl)) + '"></video>'
+        : '<video class="hovervid" muted loop playsinline preload="metadata" src="' +
+          esc(coverUrl(p.videoUrl)) + '" data-src="' + esc(coverUrl(p.videoUrl)) + '"></video>')
       : '';
+    if (p.refs && p.refs.length) badges += '<span class="badge ref">风格参考</span>';
 
     var cover = '<div class="card-cover" style="background:' + grad(p.id) + '">' +
       coverImg + hoverVid + badges +
@@ -277,11 +283,9 @@
     var active = $('#categoriesScroll .chip.active');
     var label = active ? active.textContent.replace(/\d+$/, '').trim() : '全部';
     $('#listTitle').firstChild.nodeValue = state.q ? '搜索“' + state.q + '”' : label;
-    $('#hint').textContent = state.tab === 'image'
-      ? '列表为图文卡片，点开查看完整提示词'
-      : (state.tab === 'gal'
-        ? '灵感画廊 · 点开卡片查看完整提示词'
-        : (state.tab === 'video' ? '悬停卡片可预览；点开查看完整提示词与视频' : ''));
+    $('#hint').textContent = state.tab === 'gal'
+      ? '灵感画廊 · 点开卡片查看完整提示词'
+      : (state.tab === 'video' ? '悬停卡片可预览；点开查看完整提示词与视频' : '');
   }
 
   /* ---------- 详情 ---------- */
@@ -313,7 +317,8 @@
     $('#mTitle').textContent = p.title;
 
     var pills = [];
-    if (p.kind === 'image') pills.push('<span class="pill">图片提示词</span>');
+    if (p.gal) pills.push('<span class="pill">灵感画廊</span>');
+    else if (p.kind === 'image') pills.push('<span class="pill">图片提示词</span>');
     else if (p.kind === 'video') {
       pills.push('<span class="pill">视频提示词</span>');
       if (p.model) pills.push('<span class="pill">' + esc(p.model) + '</span>');
@@ -334,7 +339,7 @@
     if (p.kind === 'video' && p.videoUrl) {
       media.innerHTML = '<video class="preview-video" controls playsinline preload="metadata" ' +
         (p.cover ? 'poster="' + esc(coverUrl(p.cover)) + '" ' : '') +
-        'src="' + esc(p.videoUrl) + '"></video>';
+        'src="' + esc(coverUrl(p.videoUrl)) + '"></video>';
     } else if (p.cover) {
       media.innerHTML = '<img class="preview" src="' + esc(coverUrl(p.cover)) + '" ' +
         'data-fb="' + esc(mfb) + '" ' +
@@ -347,6 +352,21 @@
     $('#mDesc').innerHTML = p.desc
       ? '<div class="section-label">' + descTitle + '</div><div class="brief">' +
         esc(p.desc).replace(/\n/g, '<br/>') + '</div>' : '';
+
+    // 风格参考：提示词里带的参考图(--sref/--cref 或开头输入图)，走同一个代理
+    var refs = p.refs || [];
+    var REF_LABEL = { sref: '风格', cref: '角色', dref: '构图', oref: '整体', ref: '输入图' };
+    $('#mRefs').innerHTML = refs.length
+      ? '<div class="section-label">风格参考</div><div class="ref-row">' +
+        refs.map(function (rf) {
+          var refUrl = rf[1];
+          var t = REF_LABEL[rf[0]] || '参考';
+          return '<a class="ref-item" href="' + esc(coverUrl(refUrl)) + '" target="_blank" rel="noopener">' +
+            '<img src="' + esc(coverUrl(refUrl)) + '" loading="lazy" alt="' + esc(t) + '" ' +
+            'onerror="this.parentNode.style.display=\'none\'" />' +
+            '<span>' + esc(t) + '</span></a>';
+        }).join('') + '</div>'
+      : '';
 
     $('#mBodyLabel').textContent = p.isJson ? '提示词全文（JSON，已格式化）' : '提示词全文';
     $('#mBody').innerHTML = bodyHtml(p);
@@ -450,7 +470,7 @@
     });
   }
 
-  var TABS = ['image', 'gal', 'video', 'text'];
+  var TABS = ['gal', 'video', 'text'];
 
   function tabFromUrl() {
     var t = '';
@@ -462,7 +482,7 @@
   function syncUrl(tab) {
     try {
       var u = new URL(location.href);
-      if (tab === 'image') u.searchParams.delete('tab'); else u.searchParams.set('tab', tab);
+      if (tab === 'gal') u.searchParams.delete('tab'); else u.searchParams.set('tab', tab);
       u.hash = '';
       history.replaceState(null, '', u.pathname + (u.search || ''));
     } catch (e) {}
@@ -473,7 +493,7 @@
     state.tab = tab;
     state.cat = ''; state.page = 1; state.q = ''; state.lang = ''; state.sort = 'default';
     $('#searchInput').value = '';
-    $('#langGroup').style.display = (tab === 'image' || tab === 'gal') ? 'none' : '';
+    $('#langGroup').style.display = (tab === 'gal') ? 'none' : '';
     $('#langGroup').querySelectorAll('button').forEach(function (x, i) { x.classList.toggle('active', i === 0); });
     $('#sortGroup').querySelectorAll('button').forEach(function (x, i) { x.classList.toggle('active', i === 0); });
     document.querySelectorAll('.tab').forEach(function (b) {
@@ -606,12 +626,12 @@
     $('#statPlay').textContent = fmtNum(m.videoPlayable || 0);
     $('#statCats').textContent = m.totalCats || 0;
     $('#tabTextCnt').textContent = fmtNum(m.textCount || 0);
-    $('#tabImageCnt').textContent = fmtNum(m.imageCount || 0);
+    if ($('#tabImageCnt')) $('#tabImageCnt').textContent = fmtNum(m.imageCount || 0);
     $('#tabGalCnt').textContent = fmtNum(m.galCount || 0);
     $('#tabVideoCnt').textContent = fmtNum(m.videoCount || 0);
     $('#heroZh').textContent = fmtNum(z.text + z.video + z.image + (m.galCount || 0));
     if ($('#heroGal')) $('#heroGal').textContent = fmtNum(m.galCount || 0);
-    $('#heroImage').textContent = fmtNum(m.imageCount || 0);
+    if ($('#heroImage')) $('#heroImage').textContent = fmtNum(m.imageCount || 0);
     $('#heroVideo').textContent = fmtNum(m.videoCount || 0);
     $('#heroVideoPlay').textContent = fmtNum(m.videoPlayable || 0);
   }
@@ -619,14 +639,12 @@
   function boot() {
     fetch('data/manifest.json').then(function (r) { return r.json(); }).then(function (m) {
       state.manifest = m;
-      var start = tabFromUrl() || 'image';
+      var start = tabFromUrl() || 'gal';
       state.tab = start;
-      $('#langGroup').style.display = (start === 'image' || start === 'gal') ? 'none' : '';
-      if (start !== 'image') {
-        document.querySelectorAll('.tab').forEach(function (b) {
-          b.classList.toggle('active', b.dataset.tab === start);
-        });
-      }
+      $('#langGroup').style.display = (start === 'gal') ? 'none' : '';
+      document.querySelectorAll('.tab').forEach(function (b) {
+        b.classList.toggle('active', b.dataset.tab === start);
+      });
       bind();
       stats();                       // 计数全部来自 manifest，瞬间渲染
       loadTab(start, function () {   // 仅取第 0 片，其余后台渐进拉取
