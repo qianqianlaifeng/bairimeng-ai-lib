@@ -23,10 +23,24 @@
   /* 图片代理前缀: 由 assets/js/config.js 的 IMG_BASE 决定。
      留空 = 同域; 填了 = 拼到前面(GitHub Pages 这类没有后端的静态托管用)。 */
   var IMG_BASE = (window.SITE_CONFIG && window.SITE_CONFIG.IMG_BASE) || '';
+  var IMG_FALLBACK = (window.SITE_CONFIG && window.SITE_CONFIG.IMG_FALLBACK) || '';
   function coverUrl(u) {
     if (!u) return '';
     if (/^https?:\/\//.test(u)) return u;
     return IMG_BASE ? IMG_BASE.replace(/\/+$/, '') + u : u;
+  }
+  /* 主代理加载失败时, 自动把地址前缀换成备用代理重试一次(只换一次, 避免死循环) */
+  if (IMG_FALLBACK) {
+    document.addEventListener('error', function (e) {
+      var el = e.target;
+      if (!el || el.tagName !== 'IMG') return;
+      var src = el.getAttribute('src') || '';
+      var main = IMG_BASE.replace(/\/+$/, '');
+      var fb = IMG_FALLBACK.replace(/\/+$/, '');
+      if (main && fb && src.indexOf(main) === 0 && src.indexOf(fb) !== 0) {
+        el.setAttribute('src', fb + src.slice(main.length));
+      }
+    }, true);
   }
 
   function esc(s) {
