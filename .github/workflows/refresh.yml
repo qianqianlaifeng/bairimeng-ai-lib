@@ -47,6 +47,9 @@ jobs:
         run: |
           python tools/fetch_hotvideo.py
           python tools/build_hotvideo.py
+      - name: 兜底修复畸形参考图路径
+        continue-on-error: true
+        run: python tools/fix_refs.py data
       - name: 提交改动
         run: |
           git config user.name  "github-actions[bot]"
