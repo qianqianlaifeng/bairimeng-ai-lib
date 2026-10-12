@@ -257,7 +257,8 @@
       : '';
     if (p.refs && p.refs.length) badges += '<span class="badge ref">风格参考</span>';
 
-    var cover = '<div class="card-cover" style="background:' + grad(p.id) + '">' +
+    var cover = '<div class="card-cover' + (isVid && !p.cover ? ' vid-first' : '') +
+      '" style="background:' + grad(p.id) + '">' +
       coverImg + hoverVid + badges +
       '<span class="cat-name">' + esc(p.catLabel) + '</span>' +
       (p.kind === 'video' && p.videoUrl ? '<span class="play-btn"></span>' : '') +
