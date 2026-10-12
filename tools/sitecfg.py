@@ -12,6 +12,7 @@
   SRC_PASS       登录密码
   IMG_HOST_I     图床主机一(代号 i)
   IMG_HOST_Q     图床主机二(代号 q)
+  IMG_HOST_V     视频主机(代号 v, 只做透传, 不缩图)
   SRC_BANNED     逗号分隔的禁用词, 提示词里出现即丢弃该条
 """
 import json
@@ -21,7 +22,7 @@ import re
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 KEYS = ("SRC_BASE", "SRC_AES_KEY", "SRC_PHONE", "SRC_PASS",
-        "IMG_HOST_I", "IMG_HOST_Q", "SRC_BANNED")
+        "IMG_HOST_I", "IMG_HOST_Q", "IMG_HOST_V", "SRC_BANNED")
 
 
 def load():
@@ -48,7 +49,8 @@ SRC_PASS = CFG.get("SRC_PASS") or ""
 
 # 图床主机 -> 单字母代号(代号会写进站点数据, 主机名不会)
 HOST_TOKEN = {}
-for _host, _token in ((CFG.get("IMG_HOST_I"), "i"), (CFG.get("IMG_HOST_Q"), "q")):
+for _host, _token in ((CFG.get("IMG_HOST_I"), "i"), (CFG.get("IMG_HOST_Q"), "q"),
+                      (CFG.get("IMG_HOST_V"), "v")):
     if _host:
         HOST_TOKEN[_host.strip().lower()] = _token
 
