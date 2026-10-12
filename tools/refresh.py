@@ -141,19 +141,31 @@ def build_and_sync():
 
 
 def verify():
-    """确认分片结构正确、且提示词里无来源痕迹残留。"""
+    """确认分片结构正确、且提示词/封面/参考图里无来源痕迹残留。"""
     import glob
-    rows = leak_rows = badcover = 0
+    rows = leak_rows = badcover = badref = 0
     for f in glob.glob(os.path.join(DATA_DIR, "gal_*.json")):
         for r in json.load(open(f, encoding="utf-8")):
             rows += 1
             # 封面允许出现路径, 但绝不能出现主机名
-            if any(LEAK_RE.search(v) for i, v in enumerate(r) if isinstance(v, str) and i != 5):
-                leak_rows += 1
+            for i, v in enumerate(r):
+                if not isinstance(v, str) or i == 5:
+                    continue
+                if LEAK_RE.search(v):
+                    leak_rows += 1
+            # 第 7 位是风格参考图 [[类型, /m/<代号>/<路径>], ...] —— 嵌套结构要单独扫
+            if len(r) > 6 and isinstance(r[6], list):
+                for item in r[6]:
+                    u = item[1] if isinstance(item, (list, tuple)) and len(item) > 1 else ""
+                    if not u:
+                        continue
+                    if "://" in u or LEAK_RE.search(u) or not re.match(r"^/m/[a-z0-9]+/.+$", u, re.I):
+                        badref += 1
             if r[5] and not re.match(r"^/m/[a-z0-9]+/.+$", r[5], re.I):
                 badcover += 1
-    print("自检 -> 条数 %d | 来源残留 %d | 封面格式异常 %d" % (rows, leak_rows, badcover))
-    return rows, leak_rows, badcover
+    print("自检 -> 条数 %d | 来源残留 %d | 封面格式异常 %d | 参考图异常 %d"
+          % (rows, leak_rows, badcover, badref))
+    return rows, leak_rows, badcover + badref
 
 
 if __name__ == "__main__":
