@@ -120,8 +120,21 @@ input { font-family: inherit; }
 
 /* ---------------- Categories ---------------- */
 .categories-bar { background: #fff; border-bottom: 1px solid var(--line); position: sticky; top: 120px; z-index: 50; }
-.categories-scroll { display: flex; gap: 8px; overflow-x: auto; padding: 11px 0; scrollbar-width: none; }
-.categories-scroll::-webkit-scrollbar { display: none; }
+.categories-scroll {
+  display: flex; gap: 8px; padding: 11px 0;
+  overflow-x: auto; overflow-y: hidden;
+  /* 窄屏保留横向滚动，但把滚动条露出来，别让人不知道能滚 */
+  scrollbar-width: thin; scrollbar-color: #c7cbd6 transparent;
+  -webkit-overflow-scrolling: touch;
+}
+.categories-scroll::-webkit-scrollbar { height: 6px; }
+.categories-scroll::-webkit-scrollbar-track { background: transparent; }
+.categories-scroll::-webkit-scrollbar-thumb { background: #c7cbd6; border-radius: 3px; }
+.categories-scroll::-webkit-scrollbar-thumb:hover { background: #a9afbd; }
+/* 宽屏直接把分类铺开换行，一个都不藏 */
+@media (min-width: 820px) {
+  .categories-scroll { flex-wrap: wrap; overflow: visible; row-gap: 8px; }
+}
 .chip {
   flex: 0 0 auto; height: 32px; padding: 0 14px; border-radius: 999px;
   border: 1px solid var(--line); background: #fff; color: var(--text-2);
