@@ -22,7 +22,7 @@ import re
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 KEYS = ("SRC_BASE", "SRC_AES_KEY", "SRC_PHONE", "SRC_PASS",
-        "IMG_HOST_I", "IMG_HOST_Q", "IMG_HOST_V", "SRC_BANNED")
+        "IMG_HOST_I", "IMG_HOST_Q", "IMG_HOST_V", "IMG_HOST_W", "SRC_BANNED")
 
 
 def load():
@@ -50,7 +50,7 @@ SRC_PASS = CFG.get("SRC_PASS") or ""
 # 图床主机 -> 单字母代号(代号会写进站点数据, 主机名不会)
 HOST_TOKEN = {}
 for _host, _token in ((CFG.get("IMG_HOST_I"), "i"), (CFG.get("IMG_HOST_Q"), "q"),
-                      (CFG.get("IMG_HOST_V"), "v")):
+                      (CFG.get("IMG_HOST_V"), "v"), (CFG.get("IMG_HOST_W"), "w")):
     if _host:
         HOST_TOKEN[_host.strip().lower()] = _token
 
