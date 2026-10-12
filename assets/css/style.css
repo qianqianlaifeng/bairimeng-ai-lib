@@ -204,6 +204,8 @@ input { font-family: inherit; }
   object-fit: cover; z-index: 1; opacity: 0; transition: opacity .3s; pointer-events: none;
 }
 .prompt-card.playing .card-cover .hovervid { opacity: 1; }
+/* 没有海报图的视频: 直接用首帧当封面 */
+.card-cover.vid-first .hovervid { opacity: 1; }
 .card-cover .play-btn {
   position: absolute; inset: 0; margin: auto; width: 44px; height: 44px;
   border-radius: 50%; background: rgba(0,0,0,.5);
