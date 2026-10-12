@@ -153,18 +153,26 @@ input { font-family: inherit; }
 .seg button { height: 28px; padding: 0 14px; border-radius: 999px; font-size: 13px; color: var(--text-2); transition: .16s; }
 .seg button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 
-/* ---------------- Grid ---------------- */
-.grid-container { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; padding-bottom: 44px; }
+/* ---------------- Grid（竖版瀑布流，类悠船排列） ----------------
+   多列布局：卡片按原图自然比例展示，列内自上而下流动。
+   封面比例由 --ar 决定：图片/gal 默认 3/4 竖版，加载完成后 JS 按真实比例覆写；
+   视频固定 16/10（横屏视频硬竖裁会丢画面）。 */
+.grid-container { column-count: 4; column-gap: 18px; padding-bottom: 44px; }
+.grid-container .prompt-card {
+  /* multicol 里不能用 grid 的 stretch，卡片要能按自身高度排列 */
+  break-inside: avoid; -webkit-column-break-inside: avoid;
+  display: inline-block; width: 100%; margin: 0 0 18px;
+}
 
 .prompt-card {
   background: var(--card); border-radius: var(--radius); overflow: hidden;
   box-shadow: var(--shadow); transition: .22s; cursor: pointer;
-  display: flex; flex-direction: column; height: 100%;
+  display: flex; flex-direction: column;
 }
 .prompt-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); }
 
 .card-cover {
-  position: relative; aspect-ratio: 3 / 2; display: flex; align-items: center;
+  position: relative; aspect-ratio: var(--ar, 3 / 4); display: flex; align-items: center;
   justify-content: center; overflow: hidden;
 }
 .card-cover .cover {
@@ -243,7 +251,7 @@ input { font-family: inherit; }
 }
 .card-excerpt {
   font-size: 12.5px; color: var(--muted); line-height: 1.6;
-  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .card-foot {
   margin-top: auto; display: flex; align-items: center; gap: 8px;
@@ -350,9 +358,10 @@ input { font-family: inherit; }
 .src-note a:hover { text-decoration: underline; }
 
 /* ---------------- Responsive ---------------- */
-@media (max-width: 1100px) { .grid-container { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 1100px) { .grid-container { column-count: 3; } }
 @media (max-width: 860px) {
-  .grid-container { grid-template-columns: repeat(2, 1fr); gap: 13px; }
+  .grid-container { column-count: 2; column-gap: 13px; }
+  .grid-container .prompt-card { margin-bottom: 13px; }
   .hero h1 { font-size: 24px; }
   .hero { padding: 42px 0 36px; }
   .footer-stats { grid-template-columns: repeat(2, 1fr); gap: 20px; }
@@ -366,7 +375,8 @@ input { font-family: inherit; }
 }
 @media (max-width: 560px) {
   .container { padding: 0 12px; }
-  .grid-container { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .grid-container { column-count: 2; column-gap: 10px; }
+  .grid-container .prompt-card { margin-bottom: 10px; }
   .card-title { font-size: 13px; }
   .card-cover .cat-icon { font-size: 34px; }
   .search-btn { padding: 0 18px; height: 40px; }
