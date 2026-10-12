@@ -103,36 +103,30 @@ def cover_path(raw):
             u = json.loads(u)
         except Exception:
             pass
-    url = u.get("url") if isinstance(u, dict) else u
-    if not url:
-        return "", ""
-    m = re.match(r"^https?://([^/]+)/(.+)$", url.split("?")[0])
-    if not m:
-        return "", ""
-    t = HOST_TOKEN.get(m.group(1).lower())
-    return (t, m.group(2)) if t else ("", "")
+    return url_path(u.get("url") if isinstance(u, dict) else u)
 
 
 def url_path(url):
-    """任意绝对地址 -> (代号, 路径)。取不到返回 ("", "")。"""
+    """任意绝对地址 -> (代号, 路径)。取不到返回 ("", "")。
+
+    原始提示词里偶见**畸形地址**(主机后面又跟了一整条地址), 例如
+    `https://host/https://host/webp/xxx`。所以先按 `https://` 切开取最后一段,
+    再解析主机与路径, 避免把域名当路径带出去。
+    """
     if not url or not isinstance(url, str):
         return "", ""
-    m = re.match(r"^https?://([^/]+)/(.+)$", url.split("?")[0])
+    u = url.split("?")[0]
+    parts = re.split(r"https?://", u)
+    u = "https://" + parts[-1]
+    m = re.match(r"^https?://([^/]+)/(.+)$", u)
     if not m:
         return "", ""
     t = HOST_TOKEN.get(m.group(1).lower())
-    return (t, m.group(2)) if t else ("", "")
-
-
-def url_path(url):
-    """任意绝对地址 -> (代号, 路径)。取不到返回 ("", "")。"""
-    if not url or not isinstance(url, str):
+    path = m.group(2)
+    # 兜底: 路径里绝不允许再出现协议头或主机痕迹
+    if "://" in path or LEAK_RE.search(path):
         return "", ""
-    m = re.match(r"^https?://([^/]+)/(.+)$", url.split("?")[0])
-    if not m:
-        return "", ""
-    t = HOST_TOKEN.get(m.group(1).lower())
-    return (t, m.group(2)) if t else ("", "")
+    return (t, path) if t else ("", "")
 
 
 # 风格/角色参考图: --sref/--cref/--dref/--oref <url>, 以及提示词开头直接给的输入图
