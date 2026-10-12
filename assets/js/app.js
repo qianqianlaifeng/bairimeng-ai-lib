@@ -245,6 +245,14 @@
     };
   }
 
+  // 按分类 key 选中某个 chip（找不到就直接按 key 筛）
+  function selectCat(key) {
+    var box = $('#categoriesScroll');
+    var b = box.querySelector('.chip[data-cat="' + esc(key || '') + '"]');
+    if (b) { b.click(); return; }
+    state.cat = key || ''; state.page = 1; apply();
+  }
+
   /* ---------- 过滤 ---------- */
   function apply() {
     var q = state.q.trim().toLowerCase();
@@ -265,13 +273,11 @@
 
   /* ---------- 卡片 ---------- */
   function cardHtml(p) {
+    // 卡片封面不再堆彩色小标签（视频/可播放视频/风格参考/图片）——
+    // 用户要求"这些标签去掉"，做成清爽的封面+标题+分类名。
+    // 是否有风格参考改用工具栏的「✦ 只看风格参考」筛，弹窗里也照样显示。
     var badges = '';
-    if (p.kind === 'image') {
-      badges = '<span class="badge img">图片</span>';
-    } else if (p.kind === 'video') {
-      badges = '<span class="badge vid">视频</span>';
-      if (p.videoUrl) badges += '<span class="badge play">可播放视频</span>';
-    } else {
+    if (p.kind === 'text') {
       badges = '<span class="badge ' + (p.lang === 'zh' ? 'lang-zh' : 'lang-en') + '">' +
         (p.lang === 'zh' ? '中文' : 'EN') + '</span>';
       if (p.isJson) badges += '<span class="badge json">JSON</span>';
@@ -294,8 +300,6 @@
         : '<video class="hovervid" muted loop playsinline preload="metadata" src="' +
           esc(coverUrl(p.videoUrl)) + '" data-src="' + esc(coverUrl(p.videoUrl)) + '"></video>')
       : '';
-    if (p.refs && p.refs.length) badges += '<span class="badge ref">风格参考</span>';
-
     var cover = '<div class="card-cover' + (isVid && !p.cover ? ' vid-first' : '') +
       '" style="background:' + grad(p.id) + '">' +
       coverImg + hoverVid + badges +
@@ -406,7 +410,8 @@
             'onerror="this.parentNode.style.display=\'none\'" />' +
             '<span>' + esc(t) + '</span></a>';
         }).join('') + '</div>'
-      : '';
+      : '<div class="section-label">风格参考</div><div class="ref-empty">该条没有风格参考图。<br/>' +
+        '带参考图的卡片上有 <b>「风格参考」</b> 红色标记，也可以用工具栏的 <b>「✦ 只看风格参考」</b> 直接筛。</div>';
 
     $('#mBodyLabel').textContent = p.isJson ? '提示词全文（JSON，已格式化）' : '提示词全文';
     $('#mBody').innerHTML = bodyHtml(p);
@@ -539,7 +544,7 @@
     });
   }
 
-  var TABS = ['gal', 'video', 'text'];
+  var TABS = ['gal', 'video', 'image', 'text'];
 
   function tabFromUrl() {
     var t = '';
@@ -571,7 +576,13 @@
       b.classList.toggle('active', b.dataset.tab === tab);
     });
     syncUrl(tab);
-    loadTab(tab, function () { buildCategories(); apply(); });
+    loadTab(tab, function () {
+      buildCategories();
+      // 视频标签默认落在"热门视频": 这部分走本站代理、可播放、且带风格参考;
+      // "全部"里另有 1040 条外链视频(国内可能加载不出来), 让用户自己点进去看
+      if (tab === 'video') { selectCat('hotvideo'); return; }
+      apply();
+    });
   }
 
   /* ---------- 事件 ---------- */
@@ -737,6 +748,7 @@
       stats();                       // 计数全部来自 manifest，瞬间渲染
       loadTab(start, function () {   // 仅取第 0 片，其余后台渐进拉取
         buildCategories();
+        if (start === 'video') { selectCat('hotvideo'); return; }
         apply();
       });
     }).catch(function (e) {
