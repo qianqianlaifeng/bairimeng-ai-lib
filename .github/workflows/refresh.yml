@@ -1,0 +1,42 @@
+name: 每日刷新灵感画廊
+
+on:
+  schedule:
+    - cron: '30 20 * * *'   # UTC 20:30 = 北京时间 04:30
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 抓取 + 重建分片
+        env:
+          SRC_BASE: ${{ secrets.SRC_BASE }}
+          SRC_AES_KEY: ${{ secrets.SRC_AES_KEY }}
+          SRC_PHONE: ${{ secrets.SRC_PHONE }}
+          SRC_PASS: ${{ secrets.SRC_PASS }}
+          SRC_BANNED: ${{ secrets.SRC_BANNED }}
+          IMG_HOST_I: ${{ secrets.IMG_HOST_I }}
+          IMG_HOST_Q: ${{ secrets.IMG_HOST_Q }}
+          GAL_OUTDIR: ${{ github.workspace }}/data
+          GAL_RAW_DIR: ${{ github.workspace }}/.cache
+          YC_TOKEN_FILE: ${{ github.workspace }}/.cache/token.txt
+        run: python tools/refresh.py
+      - name: 提交改动
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "数据无变化"
+          else
+            git commit -m "chore: 每日刷新灵感画廊数据"
+            git push
+          fi

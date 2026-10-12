@@ -1,0 +1,7 @@
+.cache/
+secrets.json
+.token
+tools/secrets.json
+tools/.token
+tools/.cache/
+__pycache__/
