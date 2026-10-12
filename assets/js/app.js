@@ -287,10 +287,16 @@
     // 封面：经图片代理加载；失败时回落到本地分类图
     var fb = p.fb || ('assets/img/cat-' + p.cat + '.jpg');
     var isVid = p.kind === 'video' && p.videoUrl;
+    // 竖版瀑布流：封面比例写进 --ar。
+    //   视频 = 16/9（横屏视频竖裁会丢画面，固定横比）；
+    //   图片/gal = 默认 3/4 占位，onload 时按真实宽高比覆写，还原原图的竖/方/横。
+    var ar = isVid ? '16 / 9' : '3 / 4';
     var coverImg = p.cover
       ? '<img class="cover" loading="lazy" src="' + esc(coverUrl(p.cover)) + '"' +
         ' data-fb="' + esc(fb) + '"' +
-        ' onload="this.parentNode.classList.add(\'has-img\')"' +
+        ' onload="this.parentNode.classList.add(\'has-img\');' +
+        'var r=this.naturalWidth/this.naturalHeight;' +
+        'if(r>0.2&&r<5)this.parentNode.style.setProperty(\'--ar\',r.toFixed(3))"' +
         ' onerror="this.onerror=null;this.src=this.getAttribute(\'data-fb\')" />'
       : '';
     // 视频：有海报图时悬停才挂载播放；没有海报图就直接用视频首帧当封面
@@ -301,7 +307,7 @@
           esc(coverUrl(p.videoUrl)) + '" data-src="' + esc(coverUrl(p.videoUrl)) + '"></video>')
       : '';
     var cover = '<div class="card-cover' + (isVid && !p.cover ? ' vid-first' : '') +
-      '" style="background:' + grad(p.id) + '">' +
+      '" style="background:' + grad(p.id) + ';--ar:' + ar + '">' +
       coverImg + hoverVid + badges +
       '<span class="cat-name">' + esc(p.catLabel) + '</span>' +
       (p.kind === 'video' && p.videoUrl ? '<span class="play-btn"></span>' : '') +
