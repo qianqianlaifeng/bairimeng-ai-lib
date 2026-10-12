@@ -16,7 +16,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: 抓取 + 重建分片
+      - name: 抓取 + 重建灵感画廊分片
         env:
           SRC_BASE: ${{ secrets.SRC_BASE }}
           SRC_AES_KEY: ${{ secrets.SRC_AES_KEY }}
@@ -25,10 +25,28 @@ jobs:
           SRC_BANNED: ${{ secrets.SRC_BANNED }}
           IMG_HOST_I: ${{ secrets.IMG_HOST_I }}
           IMG_HOST_Q: ${{ secrets.IMG_HOST_Q }}
+          IMG_HOST_V: ${{ secrets.IMG_HOST_V }}
           GAL_OUTDIR: ${{ github.workspace }}/data
           GAL_RAW_DIR: ${{ github.workspace }}/.cache
           YC_TOKEN_FILE: ${{ github.workspace }}/.cache/token.txt
         run: python tools/refresh.py
+      - name: 刷新热门视频分片
+        continue-on-error: true
+        env:
+          SRC_BASE: ${{ secrets.SRC_BASE }}
+          SRC_AES_KEY: ${{ secrets.SRC_AES_KEY }}
+          SRC_PHONE: ${{ secrets.SRC_PHONE }}
+          SRC_PASS: ${{ secrets.SRC_PASS }}
+          SRC_BANNED: ${{ secrets.SRC_BANNED }}
+          IMG_HOST_I: ${{ secrets.IMG_HOST_I }}
+          IMG_HOST_Q: ${{ secrets.IMG_HOST_Q }}
+          IMG_HOST_V: ${{ secrets.IMG_HOST_V }}
+          GAL_OUTDIR: ${{ github.workspace }}/data
+          GAL_RAW_DIR: ${{ github.workspace }}/.cache
+          YC_TOKEN_FILE: ${{ github.workspace }}/.cache/token.txt
+        run: |
+          python tools/fetch_hotvideo.py
+          python tools/build_hotvideo.py
       - name: 提交改动
         run: |
           git config user.name  "github-actions[bot]"
