@@ -13,7 +13,9 @@
   var PAGE_SIZE = 24;
   var state = {
     tab: 'gal', cat: '', q: '', lang: '', sort: 'default', page: 1, openId: '',
+    onlyRefs: false,
     text: [], image: [], video: [], gal: [], list: [], manifest: null, loading: {},
+    fails: { text: 0, image: 0, video: 0, gal: 0 },
     chunks: { text: 0, image: 0, video: 0, gal: 0 },
     done: { text: false, image: false, video: false, gal: false },
     chunkDone: { text: [], image: [], video: [], gal: [] }
@@ -96,11 +98,32 @@
     try { return '/media?u=' + btoa(encodeURIComponent(u)); }
     catch (e) { return u; }
   }
+  function mergeCats() {
+    // 画廊里混了视频，分类表要把视频分类一起带上。
+    // 注意两边标签会撞名(都叫"热门视频"/"动物自然")，撞了就加"视频·"前缀区分；
+    // 画廊自带那个"热门视频"其实是一批视频缩略图(不是真视频)，改叫"视频缩略图"。
+    var m = state.manifest, out = {}, k, lab, used = {};
+    var a = m.galCats || {}, b = m.videoCats || {};
+    for (k in a) {
+      lab = a[k][0];
+      if (k === '热门视频') lab = '视频缩略图';
+      out[k] = [lab, a[k][1]];
+      used[lab] = 1;
+    }
+    for (k in b) {
+      if (out[k]) continue;
+      lab = b[k][0];
+      if (used[lab]) lab = '视频·' + lab;
+      out[k] = [lab, b[k][1] || '🎬'];
+      used[lab] = 1;
+    }
+    return out;
+  }
   function catMap() {
     var m = state.manifest;
     if (state.tab === 'text') return m.cats;
     if (state.tab === 'video') return m.videoCats || {};
-    if (state.tab === 'gal') return m.galCats || {};
+    if (state.tab === 'gal') return mergeCats();
     return m.imageCats;
   }
 
@@ -140,7 +163,8 @@
       videoUrl: r[6], model: r[7], author: r[8], lang: r[9],
       license: src[0], url: src[1], source: key,
       bodyLang: r[11], type: 'VIDEO', dev: false,
-      chars: r[2].length, isJson: looksJson(r[2]), refs: r[12] || []
+      chars: r[2].length, isJson: looksJson(r[2]), refs: r[12] || [],
+      fb: 'assets/img/cat-others.jpg'
     };
   }
   function expandGal(r) {
@@ -171,6 +195,14 @@
   function buildCategories() {
     var src = catMap();
     var cnt = (state.manifest && state.manifest.catCounts[state.tab]) || {};
+    if (state.tab === 'gal') {
+      // 画廊 = 图片 + 视频，计数相加
+      var vc = (state.manifest.catCounts.video) || {};
+      var merged = {}, kk;
+      for (kk in cnt) merged[kk] = cnt[kk];
+      for (kk in vc) merged[kk] = (merged[kk] || 0) + vc[kk];
+      cnt = merged;
+    }
     var keys = Object.keys(src);
     var total = 0;
     keys.forEach(function (k) { total += (cnt[k] || 0); });
@@ -193,6 +225,12 @@
       state.cat = b.dataset.cat;
       state.page = 1;
       apply();
+      // 分类点下去如果一条都没有、而分片还没拉全 —— 说明该分类的数据还在后面，补齐再筛
+      if (state.cat && !state.list.length && !state.done[state.tab]) {
+        var t = state.tab;
+        busy(true, '正在加载该分类…');
+        ensureAll(t).then(function () { if (state.tab === t) { busy(false); apply(); } });
+      }
     };
 
     $('#popularLinks').innerHTML = items.slice(0, 9).map(function (c) {
@@ -212,6 +250,7 @@
     var q = state.q.trim().toLowerCase();
     var list = pool().filter(function (p) {
       if (state.cat && p.cat !== state.cat) return false;
+      if (state.onlyRefs && !(p.refs && p.refs.length)) return false;
       if (state.tab !== 'gal' && state.lang && p.lang !== state.lang) return false;
       if (!q) return true;
       return (p.title + ' ' + p.body + ' ' + p.catLabel + ' ' + (p.author || '') + ' ' +
@@ -285,7 +324,7 @@
     var label = active ? active.textContent.replace(/\d+$/, '').trim() : '全部';
     $('#listTitle').firstChild.nodeValue = state.q ? '搜索“' + state.q + '”' : label;
     $('#hint').textContent = state.tab === 'gal'
-      ? '灵感画廊 · 点开卡片查看完整提示词'
+      ? '灵感画廊（图片 + 视频）· 点开卡片看完整提示词与风格参考'
       : (state.tab === 'video' ? '悬停卡片可预览；点开查看完整提示词与视频' : '');
   }
 
@@ -395,10 +434,30 @@
     video: '正在加载视频提示词…'
   };
 
+  /* 分片清单：灵感画廊 = 画廊分片(图片) + 视频分片(视频)。
+     用户要求"画廊里也要能刷到视频"，所以 gal 这个 tab 的池子由两种记录拼成。 */
+  function shards(tab) {
+    var m = state.manifest, out = [], i;
+    if (tab === 'gal') {
+      var g = m.chunks.gal || 1, v = m.chunks.video || 1;
+      // 视频排在最前，且"热门视频"那片优先 —— 打开画廊第一屏就能看到视频和风格参考
+      var hot = m.hotVideoChunk;
+      if (typeof hot === 'number' && hot >= 0 && hot < v) out.push({ f: 'video_' + hot, k: 'video' });
+      for (i = 0; i < v; i++) if (i !== hot) out.push({ f: 'video_' + i, k: 'video' });
+      for (i = 0; i < g; i++) out.push({ f: 'gal_' + i, k: 'gal' });
+      return out;
+    }
+    var n = m.chunks[tab] || 1;
+    for (i = 0; i < n; i++) out.push({ f: tab + '_' + i, k: tab });
+    return out;
+  }
+
   function loadChunk(tab, k, cb) {
-    fetch('data/' + tab + '_' + k + '.json').then(function (r) { return r.json(); }).then(function (rows) {
+    var d = shards(tab)[k];
+    if (!d) return cb(null);
+    fetch('data/' + d.f + '.json').then(function (r) { return r.json(); }).then(function (rows) {
       if (state.chunks[tab] === k) {
-        Array.prototype.push.apply(state[tab], rows.map(EXPAND[tab]));
+        Array.prototype.push.apply(state[tab], rows.map(EXPAND[d.k]));
         state.chunks[tab] = k + 1;
       }
       cb(null);
@@ -407,12 +466,19 @@
 
   function streamChunks(tab) {
     if (state.done[tab] || state.loading[tab]) return;
-    var total = (state.manifest.chunks[tab] || 1);
+    var total = shards(tab).length;
     if (state.chunks[tab] >= total) { finishChunks(tab); return; }
     state.loading[tab] = 1;
     loadChunk(tab, state.chunks[tab], function (err) {
       state.loading[tab] = 0;
-      if (err) { setTimeout(function () { streamChunks(tab); }, 1200); return; }
+      if (err) {
+        // 分片缺失时不要无限重试(会让"加载更多"永远转圈)：连续失败 3 次就收尾
+        state.fails[tab] = (state.fails[tab] || 0) + 1;
+        if (state.fails[tab] >= 3) { finishChunks(tab); return; }
+        setTimeout(function () { streamChunks(tab); }, 1200);
+        return;
+      }
+      state.fails[tab] = 0;
       if (state.chunks[tab] >= total) { finishChunks(tab); return; }
       streamChunks(tab);
     });
@@ -440,7 +506,7 @@
   // 等待下一片加载完成（用于“加载更多”按需补充）
   function loadOneChunk(tab) {
     return new Promise(function (resolve) {
-      var total = (state.manifest.chunks[tab] || 1);
+      var total = shards(tab).length;
       var start = state.chunks[tab];
       if (state.done[tab] || start >= total) { state.done[tab] = true; return resolve(); }
       streamChunks(tab);
@@ -456,8 +522,10 @@
     if (state.loading[tab]) return;
     state.loading[tab] = 1;
     if (!silent) busy(true, LOAD_TIP[tab] || '加载中…');
-    fetch('data/' + tab + '_0.json').then(function (r) { return r.json(); }).then(function (rows) {
-      state[tab] = rows.map(EXPAND[tab]);
+    var first = shards(tab)[0];
+    fetch('data/' + (first ? first.f : tab + '_0') + '.json')
+      .then(function (r) { return r.json(); }).then(function (rows) {
+      state[tab] = rows.map(EXPAND[first ? first.k : tab]);
       state.chunks[tab] = 1;
       state.loading[tab] = 0;
       if (!silent) busy(false);
@@ -493,6 +561,8 @@
     if (state.tab === tab) return;
     state.tab = tab;
     state.cat = ''; state.page = 1; state.q = ''; state.lang = ''; state.sort = 'default';
+    state.onlyRefs = false;
+    if ($('#refGroup')) $('#refGroup').querySelector('button').classList.remove('active');
     $('#searchInput').value = '';
     $('#langGroup').style.display = (tab === 'gal') ? 'none' : '';
     $('#langGroup').querySelectorAll('button').forEach(function (x, i) { x.classList.toggle('active', i === 0); });
@@ -574,6 +644,19 @@
       state.sort = b.dataset.sort; state.page = 1; apply();
     });
 
+    // 「只看风格参考」：打开时若池子还没拉全，先把分片拉完再筛，避免结果不全
+    if ($('#refGroup')) $('#refGroup').addEventListener('click', function () {
+      state.onlyRefs = !state.onlyRefs;
+      $('#refGroup').querySelector('button').classList.toggle('active', state.onlyRefs);
+      state.page = 1;
+      apply();
+      if (state.onlyRefs && !state.done[state.tab]) {
+        var t = state.tab;
+        busy(true, '正在汇总全部数据…');
+        ensureAll(t).then(function () { if (state.tab === t) { busy(false); apply(); } });
+      }
+    });
+
     $('#loadMoreBtn').addEventListener('click', function () {
       var tab = state.tab, need = (state.page + 1) * PAGE_SIZE;
       function go() { state.page++; render(); }
@@ -605,6 +688,8 @@
     $('#logoLink').addEventListener('click', function (e) {
       e.preventDefault();
       state.cat = ''; state.q = ''; state.lang = ''; state.page = 1; state.sort = 'default';
+      state.onlyRefs = false;
+      if ($('#refGroup')) $('#refGroup').querySelector('button').classList.remove('active');
       $('#searchInput').value = '';
       $('#langGroup').querySelectorAll('button').forEach(function (x, i) { x.classList.toggle('active', i === 0); });
       $('#sortGroup').querySelectorAll('button').forEach(function (x, i) { x.classList.toggle('active', i === 0); });
@@ -628,10 +713,12 @@
     $('#statCats').textContent = m.totalCats || 0;
     $('#tabTextCnt').textContent = fmtNum(m.textCount || 0);
     if ($('#tabImageCnt')) $('#tabImageCnt').textContent = fmtNum(m.imageCount || 0);
-    $('#tabGalCnt').textContent = fmtNum(m.galCount || 0);
+    // 灵感画廊现在同时装图片和视频，计数按两者之和显示，跟"全部"分类对齐
+    var galAll = (m.galCount || 0) + (m.videoCount || 0);
+    $('#tabGalCnt').textContent = fmtNum(galAll);
     $('#tabVideoCnt').textContent = fmtNum(m.videoCount || 0);
     $('#heroZh').textContent = fmtNum(z.text + z.video + z.image + (m.galCount || 0));
-    if ($('#heroGal')) $('#heroGal').textContent = fmtNum(m.galCount || 0);
+    if ($('#heroGal')) $('#heroGal').textContent = fmtNum(galAll);
     if ($('#heroImage')) $('#heroImage').textContent = fmtNum(m.imageCount || 0);
     $('#heroVideo').textContent = fmtNum(m.videoCount || 0);
     $('#heroVideoPlay').textContent = fmtNum(m.videoPlayable || 0);
