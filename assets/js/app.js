@@ -440,7 +440,6 @@
   // 数据已按 600 条/片拆分；首屏只取第 0 片，其余在后台渐进拉取，不阻塞渲染
   var LOAD_TIP = {
     text: '正在加载文本提示词…',
-    image: '正在加载图片提示词…',
     gal: '正在加载灵感画廊…',
     video: '正在加载视频提示词…'
   };
@@ -550,7 +549,9 @@
     });
   }
 
-  var TABS = ['gal', 'video', 'image', 'text'];
+  // 图片提示词页已下线(2026-10-13): 看图片请去「灵感画廊」。这里保留白名单,
+  // 旧链接 (?tab=image) 会自动落回灵感画廊。
+  var TABS = ['gal', 'video', 'text'];
 
   function tabFromUrl() {
     var t = '';
@@ -721,22 +722,20 @@
 
   function stats() {
     var m = state.manifest;
-    var total = (m.imageCount || 0) + (m.textCount || 0) + (m.videoCount || 0) + (m.galCount || 0);
-    var z = m.zh || { text: 0, image: 0, video: 0 };
+    var total = (m.textCount || 0) + (m.videoCount || 0) + (m.galCount || 0);
+    var z = m.zh || { text: 0, video: 0 };
     $('#statTotal').textContent = fmtNum(total);
     $('#statTotal2').textContent = fmtNum(total);
     $('#statVideo').textContent = fmtNum(m.videoCount || 0);
     $('#statPlay').textContent = fmtNum(m.videoPlayable || 0);
     $('#statCats').textContent = m.totalCats || 0;
     $('#tabTextCnt').textContent = fmtNum(m.textCount || 0);
-    if ($('#tabImageCnt')) $('#tabImageCnt').textContent = fmtNum(m.imageCount || 0);
     // 灵感画廊现在同时装图片和视频，计数按两者之和显示，跟"全部"分类对齐
     var galAll = (m.galCount || 0) + (m.videoCount || 0);
     $('#tabGalCnt').textContent = fmtNum(galAll);
     $('#tabVideoCnt').textContent = fmtNum(m.videoCount || 0);
-    $('#heroZh').textContent = fmtNum(z.text + z.video + z.image + (m.galCount || 0));
+    $('#heroZh').textContent = fmtNum(z.text + z.video + (m.galCount || 0));
     if ($('#heroGal')) $('#heroGal').textContent = fmtNum(galAll);
-    if ($('#heroImage')) $('#heroImage').textContent = fmtNum(m.imageCount || 0);
     $('#heroVideo').textContent = fmtNum(m.videoCount || 0);
     $('#heroVideoPlay').textContent = fmtNum(m.videoPlayable || 0);
   }

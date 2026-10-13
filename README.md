@@ -1,11 +1,10 @@
 # 白日梦AI生成库
 
-图片提示词 · 视频提示词 · 灵感画廊 · 文本提示词，纯静态站点，直接托管在 GitHub Pages。
+视频提示词 · 灵感画廊 · 文本提示词，纯静态站点，直接托管在 GitHub Pages。
 
 | 标签 | 条数 |
 | --- | --- |
 | 灵感画廊 | 见 `data/manifest.json` 的 `galCount` |
-| 图片提示词 | `imageCount` |
 | 视频提示词 | `videoCount` |
 | 文本提示词 | `textCount` |
 
@@ -27,8 +26,8 @@
 window.SITE_CONFIG = { IMG_BASE: 'https://你的代理域名' };
 ```
 
-换代理只需要改这一行。代理实现见项目里的 `worker/worker.js`（Cloudflare Workers 版）
-或 `server.js`（Node 版）。**这两个文件都含图床域名，不要提交到公开仓库。**
+换代理只需要改这一行。仓库里不含任何图床域名，也不需要图片映射表。
+`IMG_FALLBACK` 是备用代理：主地址加载失败时，图片会自动回退过去再试一次。
 
 ## 每天自动刷新数据
 
@@ -45,6 +44,7 @@ window.SITE_CONFIG = { IMG_BASE: 'https://你的代理域名' };
 | `SRC_BANNED` | 逗号分隔的禁用词，提示词里出现即丢弃该条 |
 | `IMG_HOST_I` | 图床主机一 |
 | `IMG_HOST_Q` | 图床主机二 |
+| `IMG_HOST_V` | 视频/参考图主机（原样透传，不缩图） |
 
 这些值都不写进代码，所以公开仓库里看不到任何来源信息。
 也可以随时在 Actions 页面手动点 `Run workflow` 触发一次。
@@ -58,7 +58,6 @@ assets/js/config.js   图片代理地址（唯一需要改的配置）
 assets/js/app.js      前端逻辑
 data/manifest.json    分类与计数
 data/gal_*.json       灵感画廊分片
-data/image_*.json     图片提示词分片
 data/video_*.json     视频提示词分片
 data/text_*.json      文本提示词分片
 tools/                数据抓取与重建脚本（Actions 调用）
