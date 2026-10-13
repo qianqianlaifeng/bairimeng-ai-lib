@@ -154,6 +154,9 @@
       license: src[0], url: src[1], source: key,
       bodyLang: r[11], type: 'VIDEO', dev: false,
       chars: r[2].length, isJson: looksJson(r[2]), refs: r[12] || [],
+      // 「热门视频」那批是 AI 生成的静音片(实测文件里没有音轨)；
+      // 其余来源(外链案例)带原声。标出来, 免得用户以为播放器坏了。
+      silent: key === 'hotvideo',
       fb: 'assets/img/cat-others.jpg'
     };
   }
@@ -302,6 +305,7 @@
       ' style="background:' + grad(p.id) + ';--ar:' + ar + '">' +
       inner +
       (isVid ? '<span class="play-btn"></span>' : '') +
+      (isVid && !p.silent ? '<span class="audio-badge" title="这条带原声">🔊</span>' : '') +
       (p.kind === 'text' ? textBadges(p) :
         '<span class="tile-overlay"><b class="tile-title">' + esc(p.title) + '</b>' +
         '<i class="tile-cat">' + esc(p.catLabel) + '</i></span>') +
@@ -332,7 +336,13 @@
       ? '只看带风格参考图的图片条目（点开卡片可看参考图）'
       : (state.tab === 'gal'
         ? '图片提示词 · 点开卡片看完整提示词与风格参考'
-        : (state.tab === 'video' ? '悬停卡片可预览；点开查看完整提示词与视频' : ''));
+        : (state.tab === 'video'
+          ? (state.cat === 'hotvideo'
+            ? '热门视频均为 AI 生成的静音画面（无音轨）；带原声的在动作 / 口播 / 音乐MV 等分类，卡片右下角有 🔊'
+            : '视频进画面自动播放（静音循环）；点开卡片可听原声')
+          : ''));
+    // 卡片重画了, 重新挂一次自动播放的观察器
+    startAutoplay();
   }
 
   /* ---------- 详情 ---------- */
@@ -358,6 +368,7 @@
     var p = pool().filter(function (x) { return x.id === id; })[0];
     if (!p) return;
     state.openId = id;
+    stopAutoplay();          // 弹窗里要放原声, 先把网格里的静音循环停掉
 
     $('#modalHead').style.background = grad(p.id);
     $('#mCat').textContent = p.catLabel;
@@ -380,13 +391,26 @@
     pills.push('<span class="pill">' + fmtNum(p.chars) + ' 字</span>');
     $('#mMeta').innerHTML = pills.join('');
 
-    // 媒体区：视频优先播放，其次封面（经图片代理；失败回落本地分类图）
+    // 媒体区：视频优先播放，其次封面（失败回落本地分类图）
     var media = $('#mMedia');
     var mfb = p.fb || ('assets/img/cat-' + p.cat + '.jpg');
     if (p.kind === 'video' && p.videoUrl) {
-      media.innerHTML = '<video class="preview-video" controls playsinline preload="metadata" ' +
+      // 点卡片算用户操作, 浏览器允许带声音自动播放 —— 有原声的直接出声
+      media.innerHTML = '<video class="preview-video" controls playsinline autoplay ' +
+        'preload="metadata" ' +
         (p.cover ? 'poster="' + esc(coverUrl(p.cover)) + '" ' : '') +
         'src="' + esc(coverUrl(p.videoUrl)) + '"></video>';
+      var mv = media.querySelector('video');
+      if (mv) {
+        mv.volume = 1;
+        var pr = mv.play();
+        if (pr && pr.catch) pr.catch(function () {
+          // 带声音被拦了(极少见): 退回静音播放, 让用户自己点开声音
+          mv.muted = true;
+          var pr2 = mv.play();
+          if (pr2 && pr2.catch) pr2.catch(function () {});
+        });
+      }
     } else if (p.cover) {
       media.innerHTML = '<img class="preview" src="' + esc(coverUrl(p.cover)) + '" ' +
         'data-fb="' + esc(mfb) + '" ' +
@@ -419,6 +443,13 @@
     $('#mBodyLabel').textContent = p.isJson ? '提示词全文（JSON，已格式化）' : '提示词全文';
     $('#mBody').innerHTML = bodyHtml(p);
 
+    // 无声片要讲清楚, 否则用户会以为是播放器坏了
+    $('#mAudio').innerHTML = (p.kind === 'video' && p.videoUrl)
+      ? '<div class="media-note">' + (p.silent
+        ? '🔇 这条是 AI 生成的画面，文件里没有音轨，所以没有声音。带原声的在「动作 / 口播 / 音乐MV」等分类，卡片右下角有 🔊 标记。'
+        : '🔊 这条带原声，点开即播；若浏览器拦了自动播放，点视频里的喇叭开声音。') +
+        '</div>'
+      : '';
     // 来源与授权信息不再对外展示
     $('#mSrc').innerHTML = '';
     $('#copyHint').textContent = '';
@@ -431,6 +462,7 @@
     $('#mMedia').innerHTML = '';
     $('#modalMask').classList.remove('open');
     document.body.style.overflow = '';
+    startAutoplay();          // 弹窗关了, 网格里的视频接着播
   }
 
   /* ---------- 数据加载（分片懒加载） ---------- */
@@ -565,6 +597,8 @@
     if ($('#refGroup')) $('#refGroup').querySelector('button').classList.remove('active');
     $('#searchInput').value = '';
     $('#langGroup').style.display = (tab === 'gal') ? 'none' : '';
+    // 只有视频页有视频卡片, 自动播放开关就只在那儿出现
+    if ($('#autoplayGroup')) $('#autoplayGroup').style.display = (tab === 'video') ? '' : 'none';
     $('#langGroup').querySelectorAll('button').forEach(function (x, i) { x.classList.toggle('active', i === 0); });
     $('#sortGroup').querySelectorAll('button').forEach(function (x, i) { x.classList.toggle('active', i === 0); });
     document.querySelectorAll('.tab').forEach(function (b) {
@@ -578,6 +612,84 @@
       if (tab === 'video') { selectCat('hotvideo'); return; }
       apply();
     });
+  }
+
+  /* ---------- 视频自动播放 ----------
+     视频卡片滚进视野就静音循环播放, 滚出去立刻停 —— 用 IntersectionObserver 管,
+     避免一进页面几十个视频同时拉流量。浏览器只放行"静音自动播放", 所以必须 muted。 */
+  var AUTOPLAY_KEY = 'brm_autoplay';
+  var MAX_AUTOPLAY = 16;          // 同时播放上限(安全阀, 一般一屏也就十来个)
+  var autoplayOn = true;
+  var playObserver = null;
+  var playingNow = [];
+
+  function wantAutoplay() {
+    var v = null;
+    try { v = localStorage.getItem(AUTOPLAY_KEY); } catch (e) {}
+    if (v === '0') return false;
+    if (v === '1') return true;
+    // 系统开了"减少动态效果"就默认关
+    return !(window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  }
+  function videoOf(card) {
+    return card.querySelector('video.cover-flow') || card.querySelector('video.hovervid');
+  }
+  function playCard(card) {
+    var v = videoOf(card);
+    if (!v) return;
+    if (!v.getAttribute('src')) {
+      var s = v.getAttribute('data-src');
+      if (s) v.setAttribute('src', s);
+    }
+    card.classList.add('playing');
+    var pr = v.play();
+    if (pr && pr.catch) pr.catch(function () {});
+  }
+  function pauseCard(card) {
+    card.classList.remove('playing');
+    var v = videoOf(card);
+    if (v) { try { v.pause(); v.currentTime = 0; } catch (e) {} }
+  }
+  function stopAutoplay() {
+    if (playObserver) playObserver.disconnect();
+    document.querySelectorAll('#grid .prompt-card').forEach(pauseCard);
+    playingNow = [];
+  }
+  function startAutoplay() {
+    if (!autoplayOn) return;
+    if (!playObserver) {
+      playObserver = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          var c = en.target, i = playingNow.indexOf(c);
+          if (en.isIntersecting) {
+            if (i < 0) {
+              if (playingNow.length >= MAX_AUTOPLAY) return;
+              playingNow.push(c);
+            }
+            playCard(c);
+          } else if (i >= 0) {
+            playingNow.splice(i, 1);
+            pauseCard(c);
+          }
+        });
+      }, { threshold: 0.4 });
+    }
+    playObserver.disconnect();
+    playingNow = [];
+    document.querySelectorAll('#grid .prompt-card').forEach(function (c) {
+      if (c.querySelector('video')) playObserver.observe(c);
+    });
+  }
+  function setAutoplay(on) {
+    autoplayOn = on;
+    try { localStorage.setItem(AUTOPLAY_KEY, on ? '1' : '0'); } catch (e) {}
+    var b = $('#autoplayBtn');
+    if (b) {
+      b.classList.toggle('active', on);
+      b.textContent = on ? '⏸ 停自动播放' : '▶ 自动播放';
+    }
+    if (on) startAutoplay(); else stopAutoplay();
   }
 
   /* ---------- 事件 ---------- */
@@ -606,6 +718,8 @@
       if (!c) return;
       if (e.relatedTarget && c.contains(e.relatedTarget)) return;
       if (hoverCard === c) hoverCard = null;
+      // 开着自动播放时, 播放/停止一律由 IntersectionObserver 管, 鼠标移出不要抢
+      if (autoplayOn) return;
       var v = c.querySelector('video.hovervid');
       c.classList.remove('playing');
       if (v) { try { v.pause(); v.currentTime = 0; } catch (err) {} }
@@ -651,6 +765,9 @@
     });
 
     // 「只看风格参考」：打开时若池子还没拉全，先把分片拉完再筛，避免结果不全
+    // 「自动播放」开关：默认开，关过一次就记住
+    $('#autoplayBtn').addEventListener('click', function () { setAutoplay(!autoplayOn); });
+
     if ($('#refGroup')) $('#refGroup').addEventListener('click', function () {
       state.onlyRefs = !state.onlyRefs;
       $('#refGroup').querySelector('button').classList.toggle('active', state.onlyRefs);
@@ -734,10 +851,13 @@
       var start = tabFromUrl() || 'gal';
       state.tab = start;
       $('#langGroup').style.display = (start === 'gal') ? 'none' : '';
+      if ($('#autoplayGroup')) $('#autoplayGroup').style.display = (start === 'video') ? '' : 'none';
       document.querySelectorAll('.tab').forEach(function (b) {
         b.classList.toggle('active', b.dataset.tab === start);
       });
       bind();
+      autoplayOn = wantAutoplay();     // 读用户的偏好（默认开）
+      setAutoplay(autoplayOn);
       stats();                       // 计数全部来自 manifest，瞬间渲染
       loadTab(start, function () {   // 仅取第 0 片，其余后台渐进拉取
         buildCategories();

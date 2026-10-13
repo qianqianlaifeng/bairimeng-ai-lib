@@ -6,7 +6,7 @@
 <title>白日梦AI生成库 · 灵感画廊 · 视频 · 文本</title>
 <meta name="description" content="图片提示词 · 视频提示词 · 文本提示词，五万余条精选灵感，全部开放可看、自由复制。" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%236366f1'/%3E%3Cpath d='M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z' fill='white'/%3E%3C/svg%3E" />
-<link rel="stylesheet" href="assets/css/style.css?v=7c1bcacc" />
+<link rel="stylesheet" href="assets/css/style.css?v=e2c6ced7" />
 </head>
 <body>
 
@@ -51,6 +51,9 @@
     </div>
     <div class="seg" id="refGroup">
       <button data-refs="1" title="只显示带风格参考图的卡片">✦ 只看风格参考</button>
+    </div>
+    <div class="seg" id="autoplayGroup">
+      <button id="autoplayBtn" title="视频滚进画面时自动静音循环播放">▶ 自动播放</button>
     </div>
     <div class="seg" id="sortGroup">
       <button data-sort="default" class="active">默认</button>
@@ -116,6 +119,7 @@
     <div class="modal-body">
       <div class="meta-row" id="mMeta"></div>
       <div id="mMedia"></div>
+      <div id="mAudio"></div>
       <div id="mRefs"></div>
       <div id="mDesc"></div>
       <div class="section-label" id="mBodyLabel">提示词全文</div>
@@ -132,6 +136,6 @@
 <div id="toast" style="position:fixed;left:50%;bottom:38px;transform:translate(-50%,20px);background:rgba(22,24,29,.93);color:#fff;padding:10px 20px;border-radius:999px;font-size:13px;opacity:0;pointer-events:none;transition:.25s;z-index:999"></div>
 
 <script src="assets/js/config.js?v=57f07fe6"></script>
-<script src="assets/js/app.js?v=38ed4d5d"></script>
+<script src="assets/js/app.js?v=52b2fe09"></script>
 </body>
 </html>

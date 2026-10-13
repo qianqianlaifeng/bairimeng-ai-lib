@@ -259,6 +259,16 @@ input { font-family: inherit; }
   border-width: 9px 0 9px 15px; border-color: transparent transparent transparent #fff;
 }
 .prompt-card.playing .card-cover .play-btn { opacity: 0; }
+/* 带原声的视频：右下角一个 🔊，静音片不显示，方便一眼区分 */
+.card-cover .audio-badge {
+  position: absolute; right: 6px; bottom: 6px; z-index: 4;
+  min-width: 20px; height: 20px; padding: 0 4px; border-radius: 10px;
+  background: rgba(15, 23, 42, .62); color: #fff; font-size: 11px; line-height: 20px;
+  text-align: center; pointer-events: none; backdrop-filter: blur(2px);
+  opacity: 0; transition: opacity .25s;
+}
+.prompt-card:hover .card-cover .audio-badge,
+.prompt-card.playing .card-cover .audio-badge { opacity: 1; }
 
 .card-body { padding: 12px 13px 14px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
 .card-title {
