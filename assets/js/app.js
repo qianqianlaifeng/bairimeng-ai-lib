@@ -258,7 +258,12 @@
     var q = state.q.trim().toLowerCase();
     var list = pool().filter(function (p) {
       if (state.cat && p.cat !== state.cat) return false;
-      if (state.onlyRefs && !(p.refs && p.refs.length)) return false;
+      if (state.onlyRefs) {
+        // 画廊是"图片+视频"混排，而视频分片自带大批"参考图"(输入帧)，会把筛选结果
+        // 全淹掉 —— 画廊里的「只看风格参考」只保留带参考图的图片条目。
+        if (state.tab === 'gal' && !p.gal) return false;
+        if (!(p.refs && p.refs.length)) return false;
+      }
       if (state.tab !== 'gal' && state.lang && p.lang !== state.lang) return false;
       if (!q) return true;
       return (p.title + ' ' + p.body + ' ' + p.catLabel + ' ' + (p.author || '') + ' ' +
@@ -272,56 +277,64 @@
   }
 
   /* ---------- 卡片 ---------- */
+  // 文本提示词的封面徽标（语言 / JSON / 开发向）
+  function textBadges(p) {
+    var b = '<span class="badge ' + (p.lang === 'zh' ? 'lang-zh' : 'lang-en') + '">' +
+      (p.lang === 'zh' ? '中文' : 'EN') + '</span>';
+    if (p.isJson) b += '<span class="badge json">JSON</span>';
+    if (p.dev) b += '<span class="badge dev">DEV</span>';
+    return b;
+  }
+  // 画廊/视频卡片只放媒体本体（对齐源站的排列）：图片与视频都按真实比例展示，
+  // 不裁切；标题与分类改成悬停浮层。文本提示词没有封面图，保留原来的信息块。
   function cardHtml(p) {
-    // 卡片封面不再堆彩色小标签（视频/可播放视频/风格参考/图片）——
-    // 用户要求"这些标签去掉"，做成清爽的封面+标题+分类名。
-    // 是否有风格参考改用工具栏的「✦ 只看风格参考」筛，弹窗里也照样显示。
-    var badges = '';
-    if (p.kind === 'text') {
-      badges = '<span class="badge ' + (p.lang === 'zh' ? 'lang-zh' : 'lang-en') + '">' +
-        (p.lang === 'zh' ? '中文' : 'EN') + '</span>';
-      if (p.isJson) badges += '<span class="badge json">JSON</span>';
-      if (p.dev) badges += '<span class="badge dev">DEV</span>';
-    }
-
-    // 封面：经图片代理加载；失败时回落到本地分类图
     var fb = p.fb || ('assets/img/cat-' + p.cat + '.jpg');
     var isVid = p.kind === 'video' && p.videoUrl;
-    // 竖版瀑布流：封面比例写进 --ar。
-    //   视频 = 16/9（横屏视频竖裁会丢画面，固定横比）；
-    //   图片/gal = 默认 3/4 占位，onload 时按真实宽高比覆写，还原原图的竖/方/横。
-    var ar = isVid ? '16 / 9' : '3 / 4';
-    var coverImg = p.cover
-      ? '<img class="cover" loading="lazy" src="' + esc(coverUrl(p.cover)) + '"' +
+    var flowVid = isVid && !p.cover;      // 没海报图: 视频本体当封面, 比例由视频自己决定
+    var ar = '3 / 4';
+    var inner = '';
+    if (flowVid) {
+      // 视频本体当封面（按视频真实比例撑高）；万一视频加载不出来就退回分类图，
+      // 不留空白块
+      inner = '<video class="cover-flow" muted loop playsinline preload="metadata" ' +
+        'src="' + esc(coverUrl(p.videoUrl)) + '" data-src="' + esc(coverUrl(p.videoUrl)) + '"' +
+        ' onerror="this.style.display=\'none\';var w=this.parentNode;' +
+        'w.classList.add(\'has-img\');w.style.backgroundImage=\'url(' + esc(fb) + ')\';' +
+        'w.style.backgroundSize=\'cover\';w.style.backgroundPosition=\'center\'"></video>';
+    } else if (p.cover) {
+      // 封面按真实宽高比撑开容器（加载完成覆写 --ar），所以图片是完整展示而不是裁切
+      inner = '<img class="cover" loading="lazy" src="' + esc(coverUrl(p.cover)) + '"' +
         ' data-fb="' + esc(fb) + '"' +
         ' onload="this.parentNode.classList.add(\'has-img\');' +
         'var r=this.naturalWidth/this.naturalHeight;' +
         'if(r>0.2&&r<5)this.parentNode.style.setProperty(\'--ar\',r.toFixed(3))"' +
-        ' onerror="this.onerror=null;this.src=this.getAttribute(\'data-fb\')" />'
-      : '';
-    // 视频：有海报图时悬停才挂载播放；没有海报图就直接用视频首帧当封面
-    var hoverVid = isVid
-      ? (p.cover
-        ? '<video class="hovervid" muted loop playsinline preload="none" data-src="' + esc(coverUrl(p.videoUrl)) + '"></video>'
-        : '<video class="hovervid" muted loop playsinline preload="metadata" src="' +
-          esc(coverUrl(p.videoUrl)) + '" data-src="' + esc(coverUrl(p.videoUrl)) + '"></video>')
-      : '';
-    var cover = '<div class="card-cover' + (isVid && !p.cover ? ' vid-first' : '') +
-      '" style="background:' + grad(p.id) + ';--ar:' + ar + '">' +
-      coverImg + hoverVid + badges +
-      '<span class="cat-name">' + esc(p.catLabel) + '</span>' +
-      (p.kind === 'video' && p.videoUrl ? '<span class="play-btn"></span>' : '') +
-    '</div>';
+        ' onerror="this.onerror=null;this.src=this.getAttribute(\'data-fb\')" />';
+      if (isVid) {
+        inner += '<video class="hovervid" muted loop playsinline preload="none" data-src="' +
+          esc(coverUrl(p.videoUrl)) + '"></video>';
+      }
+    } else {
+      inner = '<span class="cat-icon">' + esc(p.catIcon || '✨') + '</span>';
+    }
+    var cover = '<div class="card-cover' + (flowVid ? ' auto-ar' : '') + '"' +
+      ' style="background:' + grad(p.id) + ';--ar:' + ar + '">' +
+      inner +
+      (isVid ? '<span class="play-btn"></span>' : '') +
+      (p.kind === 'text' ? textBadges(p) :
+        '<span class="tile-overlay"><b class="tile-title">' + esc(p.title) + '</b>' +
+        '<i class="tile-cat">' + esc(p.catLabel) + '</i></span>') +
+      '</div>';
 
-    var meta = '<span>' + esc(p.kind === 'video' ? (p.model || p.catLabel) : p.catLabel) + '</span>';
-
-    return '<div class="prompt-card" data-id="' + esc(p.id) + '">' + cover +
-      '<div class="card-body">' +
+    var body = '';
+    if (p.kind === 'text') {
+      body = '<div class="card-body">' +
         '<h3 class="card-title">' + esc(p.title) + '</h3>' +
         '<div class="card-excerpt">' + esc(excerpt(p.desc || p.body, 200)) + '</div>' +
-        '<div class="card-foot">' + meta + '<span class="chars">' + fmtNum(p.chars) + ' 字</span></div>' +
-      '</div>' +
-    '</div>';
+        '<div class="card-foot"><span>' + esc(p.catLabel) + '</span>' +
+        '<span class="chars">' + fmtNum(p.chars) + ' 字</span></div>' +
+      '</div>';
+    }
+    return '<div class="prompt-card" data-id="' + esc(p.id) + '">' + cover + body + '</div>';
   }
 
   function render() {
@@ -333,9 +346,11 @@
     var active = $('#categoriesScroll .chip.active');
     var label = active ? active.textContent.replace(/\d+$/, '').trim() : '全部';
     $('#listTitle').firstChild.nodeValue = state.q ? '搜索“' + state.q + '”' : label;
-    $('#hint').textContent = state.tab === 'gal'
-      ? '灵感画廊（图片 + 视频）· 点开卡片看完整提示词与风格参考'
-      : (state.tab === 'video' ? '悬停卡片可预览；点开查看完整提示词与视频' : '');
+    $('#hint').textContent = state.onlyRefs
+      ? '只看带风格参考图的图片条目（点开卡片可看参考图）'
+      : (state.tab === 'gal'
+        ? '灵感画廊（图片 + 视频）· 点开卡片看完整提示词与风格参考'
+        : (state.tab === 'video' ? '悬停卡片可预览；点开查看完整提示词与视频' : ''));
   }
 
   /* ---------- 详情 ---------- */
