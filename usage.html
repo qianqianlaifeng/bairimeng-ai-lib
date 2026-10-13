@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>白日梦AI生成库 · 使用说明</title>
+<meta name="description" content="白日梦AI生成库使用说明：从看提示词到用提示词的保姆级指南，由 AIGC 学习社区运营 · 白日梦-浅浅来风 编写。" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%236366f1'/%3E%3Cpath d='M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z' fill='white'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="assets/css/style.css?v=8f978138" />
+<style>
+  /* 使用说明页专属排版（复用站点 :root 变量） */
+  .guide-hero { padding: 56px 0 44px; }
+  .byline {
+    display: inline-flex; align-items: center; gap: 8px; margin: 0 0 16px;
+    font-size: 13px; font-weight: 600; color: #c7d2fe;
+    background: rgba(124,58,237,.28); border: 1px solid rgba(124,58,237,.5);
+    padding: 5px 14px; border-radius: 999px;
+  }
+  .byline .dot { width: 6px; height: 6px; border-radius: 50%; background: #a5b4fc; }
+  .guide-hero h1 { font-size: 32px; margin: 0 0 10px; letter-spacing: .5px; }
+  .guide-hero p { color: rgba(255,255,255,.7); font-size: 15px; margin: 0; }
+
+  .guide-main { padding: 38px 0 20px; }
+  .guide-block { margin-bottom: 34px; }
+  .guide-block > h2 {
+    font-size: 20px; margin: 0 0 16px; display: flex; align-items: center; gap: 10px;
+  }
+  .guide-block > h2 .no {
+    flex: 0 0 auto; width: 28px; height: 28px; border-radius: 9px; display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; font-size: 14px; font-weight: 800;
+  }
+  .guide-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 20px 22px; box-shadow: var(--shadow); line-height: 1.85; color: var(--text-2);
+  }
+  .guide-card p { margin: 0 0 10px; }
+  .guide-card p:last-child { margin-bottom: 0; }
+  .guide-card b { color: var(--text); }
+  .guide-card ul { margin: 8px 0 0; padding-left: 20px; }
+  .guide-card li { margin-bottom: 6px; }
+  .guide-card code {
+    background: #f3f4f8; border: 1px solid var(--line); border-radius: 5px;
+    padding: 1px 6px; font-size: 12.5px; color: #4338ca; font-family: Consolas, Menlo, monospace;
+  }
+
+  /* 三块内容：三列卡片 */
+  .three { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .tri-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 18px 18px 20px; box-shadow: var(--shadow); transition: .18s;
+  }
+  .tri-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
+  .tri-card .ic { font-size: 26px; }
+  .tri-card h3 { margin: 8px 0 8px; font-size: 16px; }
+  .tri-card p { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.75; }
+
+  /* 步骤 */
+  .steps { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .step {
+    display: flex; gap: 12px; background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow);
+  }
+  .step .k {
+    flex: 0 0 auto; width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center;
+    background: var(--accent-soft); color: var(--accent); font-weight: 800; font-size: 13px;
+  }
+  .step .t { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
+  .step .d { font-size: 12.5px; color: var(--muted); line-height: 1.7; }
+
+  /* FAQ */
+  .faq-item { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; background: var(--card); }
+  .faq-item .q { font-weight: 700; color: var(--text); font-size: 14px; margin-bottom: 6px; }
+  .faq-item .a { font-size: 13px; color: var(--text-2); line-height: 1.8; }
+
+  /* CTA */
+  .cta {
+    margin: 8px 0 40px; border-radius: 18px; overflow: hidden; position: relative;
+    background:
+      radial-gradient(600px 220px at 88% -20%, rgba(124,58,237,.5), transparent 60%),
+      linear-gradient(135deg, #14162a 0%, #221b46 50%, #101322 100%);
+    padding: 34px 32px; color: #fff; box-shadow: var(--shadow-lg);
+  }
+  .cta h2 { margin: 0 0 10px; font-size: 22px; }
+  .cta p { margin: 0 0 20px; color: rgba(255,255,255,.78); font-size: 14px; line-height: 1.8; max-width: 640px; }
+  .btn-go {
+    height: 50px; padding: 0 30px; border-radius: 999px; font-size: 16px; font-weight: 800;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff;
+    border: none; cursor: pointer; box-shadow: 0 10px 26px rgba(99,102,241,.5); transition: .18s;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .btn-go:hover { transform: translateY(-2px); box-shadow: 0 16px 34px rgba(99,102,241,.6); }
+  .cta .note { margin-top: 14px; font-size: 12px; color: rgba(255,255,255,.55); }
+
+  @media (max-width: 860px) {
+    .three, .steps { grid-template-columns: 1fr; }
+    .guide-hero h1 { font-size: 24px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="container nav-bar">
+    <a href="index.html" class="logo">
+      <span class="logo-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" fill="#fff"/></svg></span>
+      <span class="logo-text">白日梦AI生成库<small>图片 · 视频 · 文本 提示词</small></span>
+    </a>
+    <div class="nav-right">
+      <a class="btn btn-ghost" href="index.html">← 返回库</a>
+    </div>
+  </div>
+</header>
+
+<section class="hero guide-hero">
+  <div class="container">
+    <span class="byline"><span class="dot"></span>AIGC学习社区运营 · 白日梦-浅浅来风</span>
+    <h1>白日梦AI生成库 · 使用说明</h1>
+    <p>一份带你从「看提示词」到「用提示词」的保姆级指南，照着做就能上手。</p>
+  </div>
+</section>
+
+<main class="container guide-main">
+
+  <!-- 1. 这是什么 -->
+  <section class="guide-block">
+    <h2><span class="no">1</span>这是什么</h2>
+    <div class="guide-card">
+      <p><b>白日梦AI生成库</b>是一个开放的 AI 提示词（Prompt）库，把大家日常在用的优质提示词整理到一起，分成<b>图片、视频、文本</b>三类，全部<b>可看、可复制、可自由使用</b>。</p>
+      <p>这里没有登录、没有付费、没有解锁门槛——你看到的每一条提示词，点开就能复制走。站点<b>每天实时刷新</b>，常看常新。</p>
+      <p>它解决的是一个很实际的问题：自己从头写提示词又慢又难出效果，而别人跑通的好提示词，抄过来改改就能用。这个库，就是帮你把「好提示词」攒起来、翻出来。</p>
+    </div>
+  </section>
+
+  <!-- 2. 三块内容 -->
+  <section class="guide-block">
+    <h2><span class="no">2</span>三块内容分别怎么用</h2>
+    <div class="three">
+      <div class="tri-card">
+        <div class="ic">🖼️</div>
+        <h3>灵感画廊（图片提示词）</h3>
+        <p>卡片式浏览，每张卡是一段图片提示词。点开看完整提示词，如果这条带风格参考图，也会一并展示。适合找画面灵感、对齐风格、抄作业。</p>
+      </div>
+      <div class="tri-card">
+        <div class="ic">🎬</div>
+        <h3>视频提示词</h3>
+        <p>视频类的提示词，很多<b>带原声样片</b>，点开卡片能直接看画面、听原声（动作 / 口播 / 音乐MV 等分类带原声；热门视频是 AI 生成的静音画面，本身没有声音）。</p>
+      </div>
+      <div class="tri-card">
+        <div class="ic">📝</div>
+        <h3>文本提示词</h3>
+        <p>文字类的创作提示词，比如文案、脚本、角色设定等。点开复制即用，直接给大模型当指令。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. 基本操作 -->
+  <section class="guide-block">
+    <h2><span class="no">3</span>基本操作（照着点就行）</h2>
+    <div class="steps">
+      <div class="step"><div class="k">①</div><div><div class="t">搜索</div><div class="d">顶部输入框，输入画面、场景、关键词，例如「电影感 / 口播 / 产品展示 / 分镜」，回车或点「搜一下」。</div></div></div>
+      <div class="step"><div class="k">②</div><div><div class="t">按分类筛</div><div class="d">视频页、画廊都有分类标签，点一下快速定位你想要的风格，不用在一堆里瞎翻。</div></div></div>
+      <div class="step"><div class="k">③</div><div><div class="t">只看风格参考</div><div class="d">画廊可勾选「✦ 只看风格参考」，只显示带参考图的条目，找画面灵感更高效。</div></div></div>
+      <div class="step"><div class="k">④</div><div><div class="t">语言 / 排序</div><div class="d">可在「全部 / 中文 / English」间切换；排序支持「默认 / 最详细 / 最精简」，按需挑长度。</div></div></div>
+      <div class="step"><div class="k">⑤</div><div><div class="t">复制全文</div><div class="d">点开任意卡片，点「复制全文」按钮，提示词就进剪贴板了，去你的工具里粘贴即可。</div></div></div>
+      <div class="step"><div class="k">⑥</div><div><div class="t">视频原声</div><div class="d">视频页右上角有「自动播放」开关，开启后视频滚进画面自动静音循环；想听原声，点开卡片即可，右下角有「声音」按钮可一键开关。</div></div></div>
+    </div>
+  </section>
+
+  <!-- 4. 怎么用起来 -->
+  <section class="guide-block">
+    <h2><span class="no">4</span>拿到提示词，怎么真正用起来</h2>
+    <div class="guide-card">
+      <p>提示词不是看完就完了，得落到工具里才算数。按类型对号入座：</p>
+      <ul>
+        <li><b>图片提示词</b> → 复制到 即梦 / 可灵 / Midjourney / Stable Diffusion / SDXL 等文生图工具里生成画面。</li>
+        <li><b>视频提示词</b> → 复制到 可灵 / 即梦 / Runway / Seedance 等图生视频 / 文生视频工具里出片。</li>
+        <li><b>文本提示词</b> → 直接发给对话式大模型（如各类 AI 助手）当指令，让它按你的要求产出内容。</li>
+      </ul>
+      <p>记住一句：<b>提示词是「起点」不是「终点」</b>。别人的好提示词拿过来，可以微调风格词、画面比例、镜头、主体人物，多试两三版，找到自己的手感。库里的提示词，是你练手的弹药库。</p>
+    </div>
+  </section>
+
+  <!-- 5. FAQ -->
+  <section class="guide-block">
+    <h2><span class="no">5</span>常见问题</h2>
+    <div class="faq-item">
+      <div class="q">点开视频没声音？</div>
+      <div class="a">「热门视频」是 AI 生成的静音画面，文件里本来就没有音轨，所以放不出声；想听原声，切到「动作 / 口播 / 音乐MV」等分类，卡片右下角有 🔊 标记的就是带原声的，点开即播。</div>
+    </div>
+    <div class="faq-item">
+      <div class="q">图片打不开 / 封面是空的？</div>
+      <div class="a">封面图走图片代理加载，主代理偶尔抽风会自动回退到备用代理再试一次；一般刷新一下页面就好。个别条目本身就没有配图，属正常。</div>
+    </div>
+    <div class="faq-item">
+      <div class="q">数据多久更新一次？</div>
+      <div class="a">站点每天实时刷新，新的好提示词会持续进库，建议常来翻翻。</div>
+    </div>
+    <div class="faq-item">
+      <div class="q">这些提示词能商用吗？</div>
+      <div class="a">站内提示词均为开放内容，可自由查看、复制与使用；具体商用请结合自身使用场景自行判断，本站仅做整理展示。</div>
+    </div>
+  </section>
+
+  <!-- 6. CTA 引流 -->
+  <section class="cta">
+    <h2>光看提示词不够？来系统学 AI 创作</h2>
+    <p>提示词是弹药，但怎么选型、怎么调参、怎么把 AI 接进你的工作流，才是真正拉开差距的地方。去 AIGC 学习平台，从工具入门到实战案例，一站式学起来。</p>
+    <button class="btn-go" id="goLearn" type="button">前往 AIGC 学习平台 →</button>
+    <div class="note">点击按钮将跳转到 AIGC 学习平台（新标签页打开）。</div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-note">
+      站内提示词均为开放内容，可自由查看、复制与使用；已做去重与低质过滤。
+      本站纯前端展示，无登录、无付费、无解锁。
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 白日梦AI生成库 · 由浅浅来风运营</span>
+      <span><a href="index.html">← 返回提示词库</a></span>
+      <span>AIGC学习社区 · 白日梦-浅浅来风</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // 引流跳转：不显示原始链接，只给一个「前往」按钮，点击在新标签页打开学习平台
+  (function () {
+    var btn = document.getElementById('goLearn');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      var url = 'https://ai-learning-station.pages.dev';
+      var w = window.open(url, '_blank', 'noopener');
+      // 若被浏览器拦截弹窗，退化为当前页跳转
+      if (!w || w.closed || typeof w.focus !== 'function') {
+        window.location.href = url;
+      }
+    });
+  })();
+</script>
+</body>
+</html>
