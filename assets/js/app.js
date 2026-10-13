@@ -106,25 +106,8 @@
     catch (e) { return u; }
   }
   function mergeCats() {
-    // 画廊里混了视频，分类表要把视频分类一起带上。
-    // 注意两边标签会撞名(都叫"热门视频"/"动物自然")，撞了就加"视频·"前缀区分；
-    // 画廊自带那个"热门视频"其实是一批视频缩略图(不是真视频)，改叫"视频缩略图"。
-    var m = state.manifest, out = {}, k, lab, used = {};
-    var a = m.galCats || {}, b = m.videoCats || {};
-    for (k in a) {
-      lab = a[k][0];
-      if (k === '热门视频') lab = '视频缩略图';
-      out[k] = [lab, a[k][1]];
-      used[lab] = 1;
-    }
-    for (k in b) {
-      if (out[k]) continue;
-      lab = b[k][0];
-      if (used[lab]) lab = '视频·' + lab;
-      out[k] = [lab, b[k][1] || '🎬'];
-      used[lab] = 1;
-    }
-    return out;
+    // 灵感画廊只装图片提示词，分类表就用画廊自己的，不再混视频分类。
+    return state.manifest.galCats || {};
   }
   function catMap() {
     var m = state.manifest;
@@ -202,14 +185,6 @@
   function buildCategories() {
     var src = catMap();
     var cnt = (state.manifest && state.manifest.catCounts[state.tab]) || {};
-    if (state.tab === 'gal') {
-      // 画廊 = 图片 + 视频，计数相加
-      var vc = (state.manifest.catCounts.video) || {};
-      var merged = {}, kk;
-      for (kk in cnt) merged[kk] = cnt[kk];
-      for (kk in vc) merged[kk] = (merged[kk] || 0) + vc[kk];
-      cnt = merged;
-    }
     var keys = Object.keys(src);
     var total = 0;
     keys.forEach(function (k) { total += (cnt[k] || 0); });
@@ -266,8 +241,8 @@
     var list = pool().filter(function (p) {
       if (state.cat && p.cat !== state.cat) return false;
       if (state.onlyRefs) {
-        // 画廊是"图片+视频"混排，而视频分片自带大批"参考图"(输入帧)，会把筛选结果
-        // 全淹掉 —— 画廊里的「只看风格参考」只保留带参考图的图片条目。
+        // 灵感画廊现在只装图片提示词，视频提示词在独立页签里。
+        // 这里仍留一道兜底：画廊里只认带 gal 标记的图片条目。
         if (state.tab === 'gal' && !p.gal) return false;
         if (!(p.refs && p.refs.length)) return false;
       }
@@ -356,7 +331,7 @@
     $('#hint').textContent = state.onlyRefs
       ? '只看带风格参考图的图片条目（点开卡片可看参考图）'
       : (state.tab === 'gal'
-        ? '灵感画廊（图片 + 视频）· 点开卡片看完整提示词与风格参考'
+        ? '图片提示词 · 点开卡片看完整提示词与风格参考'
         : (state.tab === 'video' ? '悬停卡片可预览；点开查看完整提示词与视频' : ''));
   }
 
@@ -466,19 +441,10 @@
     video: '正在加载视频提示词…'
   };
 
-  /* 分片清单：灵感画廊 = 画廊分片(图片) + 视频分片(视频)。
-     用户要求"画廊里也要能刷到视频"，所以 gal 这个 tab 的池子由两种记录拼成。 */
+  /* 分片清单：每个页签只装自己的分片。
+     灵感画廊 = 画廊分片(图片提示词)，视频提示词在「视频提示词」页签里，两边不混。 */
   function shards(tab) {
     var m = state.manifest, out = [], i;
-    if (tab === 'gal') {
-      var g = m.chunks.gal || 1, v = m.chunks.video || 1;
-      // 视频排在最前，且"热门视频"那片优先 —— 打开画廊第一屏就能看到视频和风格参考
-      var hot = m.hotVideoChunk;
-      if (typeof hot === 'number' && hot >= 0 && hot < v) out.push({ f: 'video_' + hot, k: 'video' });
-      for (i = 0; i < v; i++) if (i !== hot) out.push({ f: 'video_' + i, k: 'video' });
-      for (i = 0; i < g; i++) out.push({ f: 'gal_' + i, k: 'gal' });
-      return out;
-    }
     var n = m.chunks[tab] || 1;
     for (i = 0; i < n; i++) out.push({ f: tab + '_' + i, k: tab });
     return out;
@@ -752,8 +718,8 @@
     $('#statPlay').textContent = fmtNum(m.videoPlayable || 0);
     $('#statCats').textContent = m.totalCats || 0;
     $('#tabTextCnt').textContent = fmtNum(m.textCount || 0);
-    // 灵感画廊现在同时装图片和视频，计数按两者之和显示，跟"全部"分类对齐
-    var galAll = (m.galCount || 0) + (m.videoCount || 0);
+    // 灵感画廊只装图片提示词，计数就是画廊自己的条数
+    var galAll = m.galCount || 0;
     $('#tabGalCnt').textContent = fmtNum(galAll);
     $('#tabVideoCnt').textContent = fmtNum(m.videoCount || 0);
     $('#heroZh').textContent = fmtNum(z.text + z.video + (m.galCount || 0));
