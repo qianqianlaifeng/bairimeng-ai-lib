@@ -858,10 +858,6 @@
       buildCategories(); apply();
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
-    $('#aboutLink').addEventListener('click', function (e) {
-      e.preventDefault();
-      document.getElementById('about').scrollIntoView({ behavior: 'smooth' });
-    });
   }
 
   function stats() {
