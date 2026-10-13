@@ -45,6 +45,13 @@
       }
     }, true);
   }
+  /* 预热图片代理连接: 首屏几十张图, 提前做完 DNS + TLS 握手能省一大截等待 */
+  [IMG_BASE, IMG_FALLBACK].forEach(function (b) {
+    if (!b) return;
+    var l = document.createElement('link');
+    l.rel = 'preconnect'; l.href = b.replace(/\/+$/, ''); l.crossOrigin = 'anonymous';
+    document.head.appendChild(l);
+  });
 
   function esc(s) {
     return String(s == null ? '' : s)
