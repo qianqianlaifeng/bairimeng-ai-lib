@@ -338,9 +338,11 @@
         ? '图片提示词 · 点开卡片看完整提示词与风格参考'
         : (state.tab === 'video'
           ? (state.cat === 'hotvideo'
-            ? '热门视频均为 AI 生成的静音画面（无音轨）；带原声的在动作 / 口播 / 音乐MV 等分类，卡片右下角有 🔊'
-            : '视频进画面自动播放（静音循环）；点开卡片可听原声')
+            ? '⚠️ 当前「热门视频」是 AI 生成的静音画面（没有声音）；想听原声 → 点 动作 / 口播 / 音乐MV 等分类（卡片右下角有 🔊）'
+            : '视频进画面自动播放（静音循环）；点开卡片可听原声（右下角 🔊 的是带原声的）')
           : ''));
+    // 静音默认分类给个醒目的黄条
+    if ($('#hint')) $('#hint').classList.toggle('hint-warn', state.tab === 'video' && state.cat === 'hotvideo');
     // 卡片重画了, 重新挂一次自动播放的观察器
     startAutoplay();
   }
@@ -396,20 +398,57 @@
     var mfb = p.fb || ('assets/img/cat-' + p.cat + '.jpg');
     if (p.kind === 'video' && p.videoUrl) {
       // 点卡片算用户操作, 浏览器允许带声音自动播放 —— 有原声的直接出声
-      media.innerHTML = '<video class="preview-video" controls playsinline autoplay ' +
-        'preload="metadata" ' +
-        (p.cover ? 'poster="' + esc(coverUrl(p.cover)) + '" ' : '') +
-        'src="' + esc(coverUrl(p.videoUrl)) + '"></video>';
+      media.innerHTML =
+        '<div class="video-wrap">' +
+          '<video class="preview-video" controls playsinline autoplay preload="metadata" ' +
+          (p.cover ? 'poster="' + esc(coverUrl(p.cover)) + '" ' : '') +
+          'src="' + esc(coverUrl(p.videoUrl)) + '"></video>' +
+          '<div class="media-state" id="mVState"><span class="spin"></span>' +
+          '<span id="mVStateTxt">视频加载中…</span></div>' +
+          '<button class="sound-toggle" id="mVSound" type="button"></button>' +
+        '</div>';
       var mv = media.querySelector('video');
       if (mv) {
         mv.volume = 1;
+        var st = media.querySelector('#mVState');
+        var stTxt = media.querySelector('#mVStateTxt');
+        function hideState() { if (st) st.style.display = 'none'; }
+        mv.addEventListener('playing', hideState);
+        mv.addEventListener('canplay', hideState);
+        mv.addEventListener('waiting', function () {
+          if (st) { st.style.display = 'flex'; if (stTxt) stTxt.textContent = '视频加载中…'; }
+        });
+        mv.addEventListener('error', function () {
+          if (st) { st.style.display = 'flex'; if (stTxt) stTxt.textContent = '视频加载失败（外链可能被网络拦截，可关闭重试）；带原声的也可换动作/口播/音乐MV 分类试试'; }
+        });
         var pr = mv.play();
         if (pr && pr.catch) pr.catch(function () {
-          // 带声音被拦了(极少见): 退回静音播放, 让用户自己点开声音
+          // 带声音被拦了(极少见): 退回静音播放, 让用户点按钮开声音
           mv.muted = true;
           var pr2 = mv.play();
           if (pr2 && pr2.catch) pr2.catch(function () {});
         });
+        // 声音开关按钮(显式手势, 万一带声音被拦也能一键开声)
+        var sb = media.querySelector('#mVSound');
+        if (sb) {
+          if (p.silent) {
+            sb.textContent = '🔇 无音轨';
+            sb.classList.add('disabled');
+            sb.disabled = true;
+          } else {
+            sb.textContent = mv.muted ? '🔇 已静音' : '🔊 声音已开';
+            if (!mv.muted) sb.classList.add('on');
+            sb.addEventListener('click', function () {
+              if (mv.muted) {
+                mv.muted = false; mv.volume = 1;
+                var pp = mv.play(); if (pp && pp.catch) pp.catch(function () {});
+                sb.textContent = '🔊 声音已开'; sb.classList.add('on');
+              } else {
+                mv.muted = true; sb.textContent = '🔇 已静音'; sb.classList.remove('on');
+              }
+            });
+          }
+        }
       }
     } else if (p.cover) {
       media.innerHTML = '<img class="preview" src="' + esc(coverUrl(p.cover)) + '" ' +
@@ -445,9 +484,9 @@
 
     // 无声片要讲清楚, 否则用户会以为是播放器坏了
     $('#mAudio').innerHTML = (p.kind === 'video' && p.videoUrl)
-      ? '<div class="media-note">' + (p.silent
-        ? '🔇 这条是 AI 生成的画面，文件里没有音轨，所以没有声音。带原声的在「动作 / 口播 / 音乐MV」等分类，卡片右下角有 🔊 标记。'
-        : '🔊 这条带原声，点开即播；若浏览器拦了自动播放，点视频里的喇叭开声音。') +
+      ? '<div class="media-note ' + (p.silent ? 'note-silent' : 'note-audio') + '">' + (p.silent
+        ? '🔇 这条是 AI 生成的画面，文件里<b>没有音轨</b>，所以放出来也没有声音（不是播放器坏了）。想听原声请去「动作 / 口播 / 音乐MV」等分类，卡片右下角有 🔊 标记。'
+        : '🔊 这条<b>带原声</b>，点开即出声；若没声音，点右下角「🔊 声音已开」按钮或视频自带的喇叭即可。') +
         '</div>'
       : '';
     // 来源与授权信息不再对外展示

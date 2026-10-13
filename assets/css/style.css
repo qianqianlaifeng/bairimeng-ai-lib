@@ -107,7 +107,8 @@ input { font-family: inherit; }
 .tab.active { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; }
 .tab i { font-style: normal; font-size: 12px; opacity: .8; margin-left: 4px; }
 .tabbar-spacer { flex: 1 1 auto; min-width: 8px; }
-.hint { font-size: 12px; color: var(--muted); }
+.hint { font-size: 12.5px; color: var(--muted); background: #f5f7fb; border: 1px solid var(--line); border-radius: 8px; padding: 7px 11px; display: inline-block; }
+.hint.hint-warn { background: #fff7ed; border-color: #fed7aa; color: #9a3412; font-weight: 600; }
 
 /* ---------------- Loading ---------------- */
 .loading { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 46px 0; color: var(--muted); font-size: 14px; }
@@ -268,7 +269,11 @@ input { font-family: inherit; }
   opacity: 0; transition: opacity .25s;
 }
 .prompt-card:hover .card-cover .audio-badge,
-.prompt-card.playing .card-cover .audio-badge { opacity: 1; }
+.prompt-card.playing .card-cover .audio-badge { opacity: 1; animation: badgePulse 1.4s ease-in-out infinite; }
+@keyframes badgePulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(22,163,74,.0); }
+  50% { transform: scale(1.08); box-shadow: 0 0 0 4px rgba(22,163,74,.28); }
+}
 
 .card-body { padding: 12px 13px 14px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
 .card-title {
@@ -375,7 +380,39 @@ input { font-family: inherit; }
   width: 100%; max-height: 62vh; border-radius: 12px; background: #000;
   display: block; object-fit: contain;
 }
-.media-note { margin-top: 8px; font-size: 12px; color: var(--muted); line-height: 1.6; }
+/* 视频容器：套一层, 方便放加载态和声音按钮 */
+.video-wrap { position: relative; width: 100%; }
+.media-state {
+  position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px;
+  align-items: center; justify-content: center; background: rgba(0,0,0,.55);
+  color: #fff; font-size: 13px; border-radius: 12px; z-index: 3; text-align: center; padding: 0 18px;
+}
+.media-state .spin {
+  width: 26px; height: 26px; border: 3px solid rgba(255,255,255,.35);
+  border-top-color: #fff; border-radius: 50%; animation: brSpin .8s linear infinite;
+}
+@keyframes brSpin { to { transform: rotate(360deg); } }
+/* 声音开关按钮：右下角, 显式手势, 万一带声音被拦也能一键开声 */
+.sound-toggle {
+  position: absolute; right: 12px; bottom: 12px; z-index: 5;
+  height: 38px; padding: 0 14px; border: none; border-radius: 999px; cursor: pointer;
+  background: rgba(15,23,42,.72); color: #fff; font-size: 14px; font-weight: 700;
+  backdrop-filter: blur(3px); box-shadow: 0 4px 14px rgba(0,0,0,.35); transition: .16s;
+}
+.sound-toggle:hover { background: rgba(15,23,42,.9); transform: translateY(-1px); }
+.sound-toggle.on { background: #16a34a; }
+.sound-toggle.disabled { background: rgba(100,116,139,.6); cursor: not-allowed; }
+.media-note { margin-top: 10px; font-size: 13px; color: var(--muted); line-height: 1.7; }
+/* 静音片 / 带原声 两种提示做成彩色横幅, 一眼能区分 */
+.media-note.note-silent {
+  background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412;
+  border-radius: 10px; padding: 11px 14px; font-size: 13px;
+}
+.media-note.note-audio {
+  background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46;
+  border-radius: 10px; padding: 11px 14px; font-size: 13px;
+}
+.media-note b { color: inherit; }
 .brief { font-size: 13.5px; color: var(--text-2); line-height: 1.8; }
 .copy-row { display: flex; gap: 8px; margin-top: 12px; align-items: center; flex-wrap: wrap; }
 .copy-hint { font-size: 12px; color: #16a34a; font-weight: 600; }
