@@ -60,6 +60,41 @@ jobs:
         run: |
           python tools/fetch_openimg.py
           python tools/build_oi.py
+      - name: 刷新外部灵感库(图/视频/Vibe Coding)
+        continue-on-error: true
+        env:
+          # 该图库地址走 Secret, 不落仓库
+          WF_API: ${{ secrets.WF_API }}
+          GAL_OUTDIR: ${{ github.workspace }}/data
+          GAL_RAW_DIR: ${{ github.workspace }}/.cache
+          # 每晚抓取量上限(实测 1.6s/页 + 详情 2.5s/条, 太大会跑超时)
+          WF_IMG_CAP: '400'
+          WF_VID_CAP: '250'
+          WF_VIBE_CAP: '150'
+          WF_PROMPT_CAP: '80'
+          WF_PAGE: '30'
+        run: |
+          python tools/fetch_wf.py
+          python tools/build_wf.py
+      - name: 同步 data 版本号(缓存击穿)
+        # GitHub Pages 是 max-age=600: 数据刷新后旧 manifest 会在 CDN 残留最多
+        # 10 分钟, 期间用户可能拿到缺 wf 数据的旧版。这里把 manifest 的内容哈希
+        # 写进 config.js 的 DATA_VER 并刷新 index.html 对 config.js 的 ?v=,
+        # 让浏览器必然拉到新分片。
+        run: |
+          python - <<'EOF'
+          import hashlib, re
+          ver = hashlib.md5(open('data/manifest.json','rb').read()).hexdigest()[:8]
+          p = 'assets/js/config.js'
+          s = open(p, encoding='utf-8').read()
+          s2 = re.sub(r"DATA_VER: '[^']*'", "DATA_VER: '%s'" % ver, s)
+          open(p, 'w', encoding='utf-8').write(s2)
+          h = hashlib.md5(open(p,'rb').read()).hexdigest()[:8]
+          t = open('index.html', encoding='utf-8').read()
+          t = re.sub(r"assets/js/config\.js(\?v=[0-9a-f]+)?", "assets/js/config.js?v=" + h, t)
+          open('index.html', 'w', encoding='utf-8').write(t)
+          print('DATA_VER =', ver, '| config.js?v=' + h)
+          EOF
       - name: 提交改动
         run: |
           git config user.name  "github-actions[bot]"
