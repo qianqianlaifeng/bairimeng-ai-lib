@@ -22,31 +22,67 @@
   };
   var $ = function (s) { return document.querySelector(s); };
 
-  /* 图片代理前缀: 由 assets/js/config.js 的 IMG_BASE 决定。
-     留空 = 同域; 填了 = 拼到前面(GitHub Pages 这类没有后端的静态托管用)。 */
+  /* 图片地址处理分三层:
+     1) IMG_BASE       —— 兼容保留: 相对路径拼前缀(留空 = 同域)
+     2) IMG_SHRINK     —— 静态图床二次缩图: 把原图改写成 Worker 代理地址,
+                          由 Cloudflare 侧转 webp + 限宽 600px
+     3) IMG_FALLBACK   —— 备用代理(历史机制, 保留) */
   var IMG_BASE = (window.SITE_CONFIG && window.SITE_CONFIG.IMG_BASE) || '';
   var IMG_FALLBACK = (window.SITE_CONFIG && window.SITE_CONFIG.IMG_FALLBACK) || '';
+  var IMG_SHRINK = (window.SITE_CONFIG && window.SITE_CONFIG.IMG_SHRINK) || null;
+  var SHRINK_HOSTS = (IMG_SHRINK && IMG_SHRINK.hosts) || [];
+  var SHRINK_BASE = (IMG_SHRINK && IMG_SHRINK.base) || '';
+  var SHRINK_TAG = (IMG_SHRINK && IMG_SHRINK.tag) || 'o';
+  function shrinkUrl(u) {
+    if (!SHRINK_BASE || !SHRINK_HOSTS.length) return '';
+    var m = /^https?:\/\/([^\/]+)(\/.*)$/.exec(u);
+    if (!m) return '';
+    var host = m[1].toLowerCase();
+    if (!SHRINK_HOSTS.some(function (h) { return host === h || host.slice(-h.length - 1) === '.' + h; })) return '';
+    return SHRINK_BASE.replace(/\/+$/, '') + '/m/' + SHRINK_TAG + m[2];
+  }
   function coverUrl(u) {
     if (!u) return '';
-    if (/^https?:\/\//.test(u)) return u;
+    if (/^https?:\/\//.test(u)) {
+      var s = shrinkUrl(u);
+      return s || u;
+    }
     return IMG_BASE ? IMG_BASE.replace(/\/+$/, '') + u : u;
   }
-  /* 主代理加载失败时, 自动把地址前缀换成备用代理重试一次(只换一次, 避免死循环) */
-  if (IMG_FALLBACK) {
-    document.addEventListener('error', function (e) {
-      var el = e.target;
-      if (!el || (el.tagName !== 'IMG' && el.tagName !== 'VIDEO')) return;
-      var src = el.getAttribute('src') || '';
-      var main = IMG_BASE.replace(/\/+$/, '');
-      var fb = IMG_FALLBACK.replace(/\/+$/, '');
-      if (main && fb && src.indexOf(main) === 0 && src.indexOf(fb) !== 0) {
-        el.setAttribute('src', fb + src.slice(main.length));
-        if (el.tagName === 'VIDEO') { try { el.load(); } catch (err) {} }
-      }
-    }, true);
+  /* 缩图代理(Worker 域名在国内会间歇性被 RST)加载失败时, 自动回退到源图床原图。
+     宁可慢一点、大一点, 也不能破图。回退只做一次。 */
+  var SHRINK_PREFIX = SHRINK_BASE ? SHRINK_BASE.replace(/\/+$/, '') + '/m/' + SHRINK_TAG : '';
+  function toOrig(src) {
+    if (!SHRINK_PREFIX || src.indexOf(SHRINK_PREFIX) !== 0) return '';
+    var tail = src.slice(SHRINK_PREFIX.length);   // 形如 /images/<id>/<n>.jpg
+    var host = SHRINK_HOSTS.length ? SHRINK_HOSTS[0] : '';
+    if (!host) return '';
+    return 'https://' + host + tail;
   }
+  document.addEventListener('error', function (e) {
+    var el = e.target;
+    if (!el || (el.tagName !== 'IMG' && el.tagName !== 'VIDEO')) return;
+    var src = el.getAttribute('src') || '';
+    // 1) 缩图代理 -> 源图床原图
+    if (SHRINK_PREFIX && src.indexOf(SHRINK_PREFIX) === 0) {
+      var orig = toOrig(src);
+      if (orig) {
+        el.setAttribute('src', orig);
+        if (el.tagName === 'VIDEO') { try { el.load(); } catch (err) {} }
+        return;
+      }
+    }
+    // 2) 主代理 -> 备用代理
+    if (!IMG_FALLBACK) return;
+    var main = IMG_BASE.replace(/\/+$/, '');
+    var fb = IMG_FALLBACK.replace(/\/+$/, '');
+    if (main && fb && src.indexOf(main) === 0 && src.indexOf(fb) !== 0) {
+      el.setAttribute('src', fb + src.slice(main.length));
+      if (el.tagName === 'VIDEO') { try { el.load(); } catch (err) {} }
+    }
+  }, true);
   /* 预热图片代理连接: 首屏几十张图, 提前做完 DNS + TLS 握手能省一大截等待 */
-  [IMG_BASE, IMG_FALLBACK].forEach(function (b) {
+  [IMG_BASE, IMG_FALLBACK, SHRINK_BASE].forEach(function (b) {
     if (!b) return;
     var l = document.createElement('link');
     l.rel = 'preconnect'; l.href = b.replace(/\/+$/, ''); l.crossOrigin = 'anonymous';
@@ -539,10 +575,19 @@
     }).catch(function (e) { cb(e); });
   }
 
-  function streamChunks(tab) {
+  /* 自动后台预取的分片上限。
+     首屏只需第 1 片即可渲染；再往前多备几片让"往下滚"顺滑。
+     超过这个数就停下, 等用户点「加载更多」或搜索/筛选(需要全量)时再继续。
+     好处: 不再一进站就把该页签全部分片拉完(oi_gal 15 片 + gal 79 片 ≈ 33MB),
+     首屏带宽全留给图片, 而不是在后台空转下载用不到的数据。 */
+  var AUTO_CHUNKS = 3;
+
+  function streamChunks(tab, force) {
     if (state.done[tab] || state.loading[tab]) return;
     var total = shards(tab).length;
     if (state.chunks[tab] >= total) { finishChunks(tab); return; }
+    // 自动流水线到上限就暂停(force=true 时不受限, 供搜索/筛选/加载更多使用)
+    if (!force && state.chunks[tab] >= AUTO_CHUNKS) return;
     state.loading[tab] = 1;
     loadChunk(tab, state.chunks[tab], function (err) {
       state.loading[tab] = 0;
@@ -550,12 +595,12 @@
         // 分片缺失时不要无限重试(会让"加载更多"永远转圈)：连续失败 3 次就收尾
         state.fails[tab] = (state.fails[tab] || 0) + 1;
         if (state.fails[tab] >= 3) { finishChunks(tab); return; }
-        setTimeout(function () { streamChunks(tab); }, 1200);
+        setTimeout(function () { streamChunks(tab, force); }, 1200);
         return;
       }
       state.fails[tab] = 0;
       if (state.chunks[tab] >= total) { finishChunks(tab); return; }
-      streamChunks(tab);
+      streamChunks(tab, force);
     });
   }
 
@@ -570,7 +615,7 @@
   function ensureAll(tab) {
     return new Promise(function (resolve) {
       if (state.done[tab]) return resolve();
-      streamChunks(tab);
+      streamChunks(tab, true);   // force: 绕过自动预取上限, 真的拉完
       var t = setInterval(function () {
         if (state.done[tab]) { clearInterval(t); resolve(); }
       }, 200);
@@ -584,7 +629,7 @@
       var total = shards(tab).length;
       var start = state.chunks[tab];
       if (state.done[tab] || start >= total) { state.done[tab] = true; return resolve(); }
-      streamChunks(tab);
+      streamChunks(tab, true);   // force: 用户主动要更多, 不受自动上限限制
       var t = setInterval(function () {
         if (state.chunks[tab] > start || state.done[tab]) { clearInterval(t); resolve(); }
       }, 150);
