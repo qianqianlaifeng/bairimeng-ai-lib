@@ -1,0 +1,249 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+抓取外部灵感库(wf)的 图片 / 视频 / Vibe Coding 三类内容, 转成站点通用分片。
+
+- 数据源接口根地址见 WF_API(环境变量/同目录 secrets.json), 代码不写死域名。
+- 三类 = media_type:image | media_type:video | tag:"vibe coding"。
+- 分页: cursor(响应 data.next_cursor)。列表不含 prompt, 只含 title/description/cover/media/tags...
+- prompt: 按需再打详情接口 /api/prompts/{slug} 取(有 WF_PROMPT_CAP 上限, 控制构建耗时)。
+- 隐私: 只保留媒体地址与展示字段, 剥掉 source_name/source_url/接口域名; 媒体主机不进仓库
+         (图片由前端 coverUrl 走缩图代理, 视频走 /r/v 302 代理, 见 config.js / worker)。
+
+输出(与 oi 同目录 app/data/):
+  wf_image_*.json  (7 字段 gal 行, 折进「图库」页签)
+  wf_video_*.json  (13 字段 video 行, 折进「视频」页签)
+  wf_vibe_*.json   (14 字段 video 行 + 尾缀 media_type, 进「Vibe Coding」页签)
+  .cache/wf_meta.json  (分类中文标签 + 轮播 hero 原料)
+"""
+import glob
+import json
+import os
+import ssl
+import sys
+import time
+import urllib.request
+import urllib.parse
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+DATA = os.environ.get("GAL_OUTDIR") or os.path.join(ROOT, "app", "data")
+CACHE = os.environ.get("GAL_RAW_DIR") or os.path.join(ROOT, ".cache")
+MANI = os.path.join(DATA, "manifest.json")
+
+
+def cfg_api():
+    """域名只从 环境变量 WF_API / 同目录 secrets.json(gitignored) 取, 代码不写死任何来源域名。"""
+    p = os.path.join(HERE, "secrets.json")
+    if os.path.exists(p):
+        try:
+            import json
+            v = (json.load(open(p, encoding="utf-8")) or {}).get("WF_API")
+            if v:
+                return str(v).rstrip("/")
+        except Exception:
+            pass
+    return (os.environ.get("WF_API") or "").strip().rstrip("/")
+
+
+API = cfg_api()
+PAGE = int(os.environ.get("WF_PAGE") or "60")
+# 每类最多抓多少条(列表+详情), 本地构建可调小
+IMG_CAP = int(os.environ.get("WF_IMG_CAP") or "600")
+VID_CAP = int(os.environ.get("WF_VID_CAP") or "400")
+VIBE_CAP = int(os.environ.get("WF_VIBE_CAP") or "200")
+# 每类对前 N 条抓详情取完整 prompt, 其余用 description 兜底
+PROMPT_CAP = int(os.environ.get("WF_PROMPT_CAP") or "10000")
+
+_CTX = ssl.create_default_context()
+_CTX.check_hostname = False
+_CTX.verify_mode = ssl.CERT_NONE
+
+
+def http_json(url, tries=4):
+    last = None
+    for i in range(tries):
+        try:
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "Mozilla/5.0 (compatible; refresh-bot)",
+                "Accept": "application/json",
+            })
+            with urllib.request.urlopen(req, timeout=25, context=_CTX) as r:
+                return json.loads(r.read().decode("utf-8"))
+        except Exception as e:
+            last = e
+            time.sleep(1.5 + i)
+    raise last
+
+
+def list_page(extra):
+    """翻一页。extra 里已含 limit/sort; cursor 由调用方追加。返回 (items, next_cursor, total)。"""
+    q = urllib.parse.urlencode(extra)
+    j = http_json(API + "/api/prompts?" + q)
+    d = (j or {}).get("data") or {}
+    return d.get("items") or [], d.get("next_cursor"), d.get("total") or 0
+
+
+def detail(slug):
+    try:
+        j = http_json(API + "/api/prompts/" + urllib.parse.quote(slug), tries=3)
+        return (j or {}).get("data") or {}
+    except Exception:
+        return {}
+
+
+def zh(item, short=True):
+    t = (item.get("title") or "").strip()
+    if not t:
+        tr = item.get("title_translations") or {}
+        t = tr.get("zh") or tr.get("en") or ""
+    return t
+
+
+def zhdesc(item):
+    d = (item.get("description") or "").strip()
+    return d
+
+
+def clean_refs(_):
+    return []
+
+
+# 画廊 category(英文) -> 中文页签标签
+CAT_ZH = {
+    "character": "角色插画", "portrait": "人像写真", "poster": "海报设计",
+    "product": "产品静物", "interior": "空间建筑", "story": "场景故事",
+    "infographic": "信息界面", "logo": "品牌标志", "sticker": "图标贴纸",
+    "video-ad": "广告视觉", "": "综合精选",
+}
+
+
+def img_row(item, prompt):
+    cat = "wf-" + (item.get("category") or "")
+    return [
+        "wf-" + item["slug"],
+        zh(item),
+        prompt or zhdesc(item) or zh(item),
+        cat,
+        zhdesc(item) or zh(item),
+        item.get("cover_url") or item.get("media_url") or "",
+        [],
+    ]
+
+
+def media_row(item, prompt, kind):
+    """kind: 'video' | 'vibe' -> 13(14) 字段。"""
+    cover = item.get("cover_url") or ""
+    media = item.get("media_url") or ""
+    row = [
+        "wf-" + item["slug"],
+        zh(item),
+        prompt or zhdesc(item) or zh(item),
+        "wfv-" + (item.get("category") or "") if kind == "video" else "wf-vibe",
+        zhdesc(item) or zh(item),
+        cover,
+        media,
+        item.get("model") or "",
+        "",                       # author: 不暴露原作者账号
+        "zh",                     # lang
+        "wf",                     # source key
+        "zh",                     # bodyLang
+        [],                       # refs
+    ]
+    if kind == "vibe":
+        row.append(item.get("media_type") or "video")
+    return row
+
+
+def fetch_group(extra, cap, prompt_cap, kind):
+    seen, items, cursor = set(), [], ""
+    total = 0
+    while len(items) < cap:
+        q = dict(extra)
+        q["limit"] = PAGE
+        q["sort"] = "latest"
+        page, nxt, total = list_page(q) if not cursor else list_page({**q, "cursor": cursor})
+        if not page:
+            break
+        for it in page:
+            if it.get("id") in seen:
+                continue
+            seen.add(it.get("id"))
+            items.append(it)
+            if len(items) >= cap:
+                break
+        cursor = nxt
+        if not cursor:
+            break
+    # 详情取 prompt(有上限)
+    rows = []
+    for i, it in enumerate(items[:cap]):
+        p = ""
+        if i < prompt_cap:
+            d = detail(it.get("slug") or "")
+            p = (d.get("prompt") or "").strip()
+        if kind == "image":
+            rows.append(img_row(it, p))
+        else:
+            rows.append(media_row(it, p, kind))
+    return rows, items, total
+
+
+def write_shards(prefix, rows, per=100):
+    per = int(os.environ.get("WF_SHARD") or str(per))
+    old = glob.glob(os.path.join(DATA, prefix + "_*.json"))
+    for f in old:
+        os.remove(f)
+    n = 0
+    for i in range(0, len(rows), per):
+        json.dump(rows[i:i + per], open(os.path.join(DATA, "%s_%d.json" % (prefix, i // per)), "w", encoding="utf-8"),
+                  ensure_ascii=False)
+        n += 1
+    return n
+
+
+def main():
+    os.makedirs(CACHE, exist_ok=True)
+    t0 = time.time()
+    if not API:
+        print("[wf] 未配置 WF_API(来源接口根地址), 跳过。请在 secret/环境变量/secrets.json 提供。")
+        return
+    print("[wf] API 已配置, 开始抓取…")
+
+    imgs, img_items, i_total = fetch_group({"media_type": "image"}, IMG_CAP, PROMPT_CAP, "image")
+    print("[wf] 图片", len(imgs), "/ total~", i_total, "(%.0fs)" % (time.time() - t0))
+    vids, vid_items, v_total = fetch_group({"media_type": "video"}, VID_CAP, PROMPT_CAP, "video")
+    print("[wf] 视频", len(vids), "/ total~", v_total, "(%.0fs)" % (time.time() - t0))
+    vibs, vibe_items, b_total = fetch_group({"tag": "vibe coding"}, VIBE_CAP, PROMPT_CAP, "vibe")
+    print("[wf] Vibe", len(vibs), "/ total~", b_total, "(%.0fs)" % (time.time() - t0))
+
+    n_img = write_shards("wf_image", imgs)
+    n_vid = write_shards("wf_video", vids)
+    n_vib = write_shards("wf_vibe", vibs)
+    print("[wf] 分片: wf_image=%d wf_video=%d wf_vibe=%d" % (n_img, n_vid, n_vib))
+
+    # meta: 分类中文标签 + 聚合分类 + hero 原料
+    cats = {}
+    for it in img_items + vid_items:
+        k = it.get("category") or ""
+        cats["wf-" + k] = [CAT_ZH.get(k, "综合精选"), "🎨"]
+    cats["wf-vibe"] = ["Vibe Coding", "⚡"]
+    hero = []
+    for it in (vibe_items + vid_items + img_items):
+        hero.append({
+            "id": "wf-" + it["slug"],
+            "kind": "image" if it.get("media_type") == "image" else "image",
+            "cover": it.get("cover_url") or "",
+            "title": zh(it),
+            "desc": zhdesc(it),
+            "cat": (CAT_ZH.get(it.get("category") or "", "灵感画廊")),
+        })
+        if len(hero) >= 18:
+            break
+    json.dump({"cats": cats, "hero": hero, "api_marker": "wf"},
+              open(os.path.join(CACHE, "wf_meta.json"), "w", encoding="utf-8"), ensure_ascii=False)
+    print("[wf] 完成, 共 %.0fs" % (time.time() - t0))
+
+
+if __name__ == "__main__":
+    main()
