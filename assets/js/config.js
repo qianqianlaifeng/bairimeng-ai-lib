@@ -11,6 +11,11 @@
 window.SITE_CONFIG = {
   IMG_BASE: '',
   IMG_FALLBACK: '',
+  /* data 版本号: data/manifest.json 的内容哈希。app.js 把它拼到每个
+     data/*.json 请求后面(?v=), 数据一变 URL 就变, 击穿 GitHub Pages 的
+     max-age=600 缓存, 避免用户拿到缺 wf 数据的旧 manifest。
+     每日 Actions 刷新数据后也会同步重写这个值(见 refresh.yml)。 */
+  DATA_VER: 'ae0fd371',
   IMG_SHRINK: {
     base: 'https://img.fakashop.ccwu.cc',
     tag: 'o',
