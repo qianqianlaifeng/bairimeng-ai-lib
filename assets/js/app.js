@@ -166,6 +166,7 @@
     if (state.tab === 'text') return m.cats;
     if (state.tab === 'video') return m.videoCats || {};
     if (state.tab === 'vibe') return m.vibeCats || {};
+    if (state.tab === 'h3') return m.h3Cats || {};
     if (state.tab === 'gal') return mergeCats();
     return m.imageCats;
   }
@@ -240,7 +241,23 @@
       videoUrl: isVideo ? r[6] : '', silent: false, bodyLang: r[11], gal: !isVideo
     };
   }
-  var EXPAND = { text: expandText, image: expandImage, video: expandVideo, gal: expandGal, vibe: expandVibe };
+  // 海螺 H3 行(14 字段): 与 Vibe 同行结构, 分类表换成 h3Cats
+  function expandH3(r) {
+    var m = state.manifest;
+    var c = (m.h3Cats || {})[r[3]] || ['H3 案例', '⚡'];
+    var src = (m.sources || {})[r[10]] || ['', ''];
+    var isVideo = (r[13] || 'video') !== 'image';
+    return {
+      id: r[0], title: r[1], body: r[2], cat: r[3], desc: r[4], cover: r[5],
+      catLabel: c[0], catIcon: c[1], model: r[7], author: r[8], lang: r[9],
+      license: src[0], url: src[1], source: r[10], refs: r[12] || [],
+      dev: false, chars: (r[2] || '').length, isJson: looksJson(r[2]),
+      fb: 'assets/img/cat-others.jpg',
+      kind: isVideo ? 'video' : 'image', type: isVideo ? 'VIDEO' : 'IMAGE',
+      videoUrl: isVideo ? r[6] : '', silent: false, bodyLang: r[11], gal: !isVideo
+    };
+  }
+  var EXPAND = { text: expandText, image: expandImage, video: expandVideo, gal: expandGal, vibe: expandVibe, h3: expandH3 };
 
   /* ---------- 分类 ---------- */
   function currentCats() {
@@ -582,7 +599,8 @@
     text: '正在加载文本提示词…',
     gal: '正在加载灵感画廊…',
     video: '正在加载视频提示词…',
-    vibe: '正在加载 Vibe Coding…'
+    vibe: '正在加载 Vibe Coding…',
+    h3: '正在加载海螺 H3…'
   };
 
   /* 分片清单：每个页签只装自己的分片。
@@ -590,7 +608,8 @@
   function shards(tab) {
     var m = state.manifest, out = [], i;
     // 外部图库(wf): 图片折进图库 / 视频折进视频页 / Vibe Coding 独立页签
-    var wfKey = tab === 'vibe' ? 'wf_vibe' : (tab === 'gal' ? 'wf_image' : (tab === 'video' ? 'wf_video' : ''));
+    // 海螺 H3(h3): 独立页签, 行是 14 字段混合视频卡/图卡
+    var wfKey = tab === 'vibe' ? 'wf_vibe' : (tab === 'gal' ? 'wf_image' : (tab === 'video' ? 'wf_video' : (tab === 'h3' ? 'h3_video' : '')));
     if (wfKey) {
       var nw = m.chunks[wfKey] || 0;
       for (i = 0; i < nw; i++) out.push({ f: wfKey + '_' + i, k: tab });
@@ -708,7 +727,7 @@
 
   // 图片提示词页已下线(2026-10-13): 看图片请去「灵感画廊」。这里保留白名单,
   // 旧链接 (?tab=image) 会自动落回灵感画廊。
-  var TABS = ['gal', 'video', 'text', 'vibe'];
+  var TABS = ['gal', 'video', 'text', 'vibe', 'h3'];
 
   function tabFromUrl() {
     var t = '';
@@ -733,9 +752,9 @@
     state.onlyRefs = false;
     if ($('#refGroup')) $('#refGroup').querySelector('button').classList.remove('active');
     $('#searchInput').value = '';
-    $('#langGroup').style.display = (tab === 'gal' || tab === 'vibe') ? 'none' : '';
+    $('#langGroup').style.display = (tab === 'gal' || tab === 'vibe' || tab === 'h3') ? 'none' : '';
     // 只有视频/Vibe 页有视频卡片, 自动播放开关就在那儿出现
-    if ($('#autoplayGroup')) $('#autoplayGroup').style.display = (tab === 'video' || tab === 'vibe') ? '' : 'none';
+    if ($('#autoplayGroup')) $('#autoplayGroup').style.display = (tab === 'video' || tab === 'vibe' || tab === 'h3') ? '' : 'none';
     $('#langGroup').querySelectorAll('button').forEach(function (x, i) { x.classList.toggle('active', i === 0); });
     $('#sortGroup').querySelectorAll('button').forEach(function (x, i) { x.classList.toggle('active', i === 0); });
     document.querySelectorAll('.tab').forEach(function (b) {
@@ -958,7 +977,7 @@
 
   function stats() {
     var m = state.manifest;
-    var total = (m.textCount || 0) + (m.videoCount || 0) + (m.galCount || 0) + (m.vibeCount || 0);
+    var total = (m.textCount || 0) + (m.videoCount || 0) + (m.galCount || 0) + (m.vibeCount || 0) + (m.h3Count || 0);
     var z = m.zh || { text: 0, video: 0 };
     $('#statTotal').textContent = fmtNum(total);
     $('#statTotal2').textContent = fmtNum(total);
@@ -971,6 +990,7 @@
     $('#tabGalCnt').textContent = fmtNum(galAll);
     $('#tabVideoCnt').textContent = fmtNum(m.videoCount || 0);
     if ($('#tabVibeCnt')) $('#tabVibeCnt').textContent = fmtNum(m.vibeCount || 0);
+    if ($('#tabH3Cnt')) $('#tabH3Cnt').textContent = fmtNum(m.h3Count || 0);
     $('#heroZh').textContent = fmtNum(z.text + z.video + (m.galCount || 0));
     if ($('#heroGal')) $('#heroGal').textContent = fmtNum(galAll);
     $('#heroVideo').textContent = fmtNum(m.videoCount || 0);
@@ -1037,8 +1057,8 @@
       state.manifest = m;
       var start = tabFromUrl() || 'gal';
       state.tab = start;
-      $('#langGroup').style.display = (start === 'gal' || start === 'vibe') ? 'none' : '';
-      if ($('#autoplayGroup')) $('#autoplayGroup').style.display = (start === 'video' || start === 'vibe') ? '' : 'none';
+      $('#langGroup').style.display = (start === 'gal' || start === 'vibe' || start === 'h3') ? 'none' : '';
+      if ($('#autoplayGroup')) $('#autoplayGroup').style.display = (start === 'video' || start === 'vibe' || start === 'h3') ? '' : 'none';
       document.querySelectorAll('.tab').forEach(function (b) {
         b.classList.toggle('active', b.dataset.tab === start);
       });
