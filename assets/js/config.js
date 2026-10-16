@@ -15,7 +15,7 @@ window.SITE_CONFIG = {
      data/*.json 请求后面(?v=), 数据一变 URL 就变, 击穿 GitHub Pages 的
      max-age=600 缓存, 避免用户拿到缺 wf 数据的旧 manifest。
      每日 Actions 刷新数据后也会同步重写这个值(见 refresh.yml)。 */
-  DATA_VER: 'ae0fd371',
+  DATA_VER: '70a2ee82',
   IMG_SHRINK: {
     base: 'https://img.fakashop.ccwu.cc',
     tag: 'o',
