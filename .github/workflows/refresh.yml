@@ -50,6 +50,14 @@ jobs:
       - name: 兜底修复畸形参考图路径
         continue-on-error: true
         run: python tools/fix_refs.py data
+      - name: 刷新开放精选(图/视频)
+        continue-on-error: true
+        env:
+          OI_API: ${{ secrets.OI_API }}
+          OI_PAGES: '20'
+        run: |
+          python tools/fetch_openimg.py
+          python tools/build_oi.py
       - name: 提交改动
         run: |
           git config user.name  "github-actions[bot]"

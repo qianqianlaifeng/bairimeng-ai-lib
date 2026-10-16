@@ -3,16 +3,19 @@
    数据均为开放内容，可自由查看与复制
    =========================================================== */
 :root {
-  --accent: #4f46e5;
-  --accent-2: #7c3aed;
-  --accent-soft: #eef0ff;
-  --accent-dark: #4338ca;
+  --accent: #c9a24a;
+  --accent-2: #eac96a;
+  --accent-soft: #fbf4e0;
+  --accent-dark: #a3801f;
   --text: #16181d;
   --text-2: #4b5563;
   --muted: #8b93a1;
-  --line: #e6e8ee;
-  --bg: #f6f7fb;
+  --line: #ece7da;
+  --bg: #faf8f3;
   --card: #fff;
+  --gold: #d4af37;
+  --gold-2: #f2d98a;
+  --gold-line: rgba(201, 162, 74, .34);
   --radius: 14px;
   --shadow: 0 2px 10px rgba(16, 24, 40, .06);
   --shadow-lg: 0 14px 34px rgba(16, 24, 40, .15);
@@ -40,7 +43,7 @@ input { font-family: inherit; }
 .logo { display: flex; align-items: center; gap: 9px; font-weight: 800; font-size: 19px; white-space: nowrap; }
 .logo-mark {
   width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff;
+  background: linear-gradient(135deg, var(--gold-2), var(--accent-dark)); color: #2a2100;
   font-size: 15px; font-weight: 900;
 }
 .logo-mark svg { width: 19px; height: 19px; display: block; }
@@ -57,44 +60,92 @@ input { font-family: inherit; }
 .btn-outline { border: 1px solid var(--line); color: var(--text); background: #fff; }
 .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
 
-/* ---------------- Hero ---------------- */
+/* ---------------- Hero（黑金） ---------------- */
 .hero {
   position: relative; overflow: hidden; padding: 60px 0 52px; text-align: center; color: #fff;
   background:
-    radial-gradient(900px 340px at 16% 0%, rgba(124,58,237,.42), transparent 62%),
-    radial-gradient(760px 300px at 86% 8%, rgba(56,189,248,.30), transparent 60%),
-    linear-gradient(158deg, #14162a 0%, #1e1b3a 46%, #101322 100%);
+    radial-gradient(900px 340px at 16% 0%, rgba(212,175,55,.26), transparent 62%),
+    radial-gradient(760px 300px at 86% 8%, rgba(242,217,138,.14), transparent 60%),
+    linear-gradient(158deg, #0b0b0d 0%, #1a1608 48%, #0a0a0c 100%);
 }
 .hero::after {
   content: ""; position: absolute; inset: 0; pointer-events: none;
-  background-image: linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px);
+  background-image: linear-gradient(rgba(212,175,55,.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(212,175,55,.07) 1px, transparent 1px);
   background-size: 46px 46px;
   mask-image: radial-gradient(circle at 50% 30%, #000 20%, transparent 78%);
 }
-.hero h1 { position: relative; z-index: 2; font-size: 34px; margin: 0 0 8px; letter-spacing: .5px; }
+.hero h1 { position: relative; z-index: 2; font-size: 34px; margin: 0 0 8px; letter-spacing: .5px;
+  background: linear-gradient(92deg, #fff 0%, var(--gold-2) 46%, var(--gold) 100%);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 .hero .hero-sub { position: relative; z-index: 2; color: rgba(255,255,255,.66); margin: 0 0 24px; font-size: 14px; }
-.hero .hero-sub b { color: #a5b4fc; }
+.hero .hero-sub b { color: var(--gold-2); }
 
 .search-wrapper {
   position: relative; z-index: 2; display: flex; align-items: center; gap: 8px;
   max-width: 860px; margin: 0 auto; background: #fff; border-radius: 999px;
-  padding: 7px 7px 7px 20px; box-shadow: 0 16px 40px rgba(0,0,0,.32);
+  padding: 7px 7px 7px 20px; box-shadow: 0 16px 40px rgba(0,0,0,.42), 0 0 0 1px rgba(212,175,55,.35);
 }
 .search-wrapper svg { width: 18px; height: 18px; opacity: .4; flex: 0 0 auto; }
 .search-input { flex: 1; border: none; outline: none; height: 40px; font-size: 15px; min-width: 0; background: transparent; }
 .search-btn {
   flex: 0 0 auto; height: 44px; padding: 0 30px; border-radius: 999px;
-  background: var(--accent); color: #fff; font-size: 15px; font-weight: 700; transition: .18s;
+  background: linear-gradient(135deg, var(--gold-2), var(--accent)); color: #2a2100;
+  font-size: 15px; font-weight: 800; transition: .18s;
 }
-.search-btn:hover { background: var(--accent-dark); }
+.search-btn:hover { filter: brightness(1.06); }
 
 .popular-links { position: relative; z-index: 2; margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 .popular-links a {
-  font-size: 12px; color: rgba(255,255,255,.7); padding: 3px 11px; border-radius: 999px;
-  border: 1px solid rgba(255,255,255,.18); transition: .18s;
+  font-size: 12px; color: rgba(255,255,255,.72); padding: 3px 11px; border-radius: 999px;
+  border: 1px solid rgba(212,175,55,.32); transition: .18s;
 }
-.popular-links a:hover { color: #fff; border-color: var(--accent-2); background: rgba(124,58,237,.3); }
+.popular-links a:hover { color: #1a1500; border-color: var(--gold); background: linear-gradient(135deg, var(--gold-2), var(--gold)); }
+
+/* ---------------- 黑金轮播（开放精选 · 自动滑动） ---------------- */
+.hero-carousel {
+  position: relative; overflow: hidden; padding: 22px 0 18px;
+  background: linear-gradient(180deg, #0c0c0e 0%, #14120a 100%);
+  border-bottom: 1px solid rgba(212,175,55,.28);
+}
+.hc-head {
+  max-width: 1280px; margin: 0 auto 14px; padding: 0 20px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.hc-t { color: var(--gold-2); font-weight: 800; font-size: 15px; letter-spacing: .5px; }
+.hc-tip { color: rgba(255,255,255,.42); font-size: 12px; }
+.hc-viewport { width: 100%; overflow: hidden; }
+.hc-track {
+  display: flex; width: max-content;
+  animation: hcScroll 60s linear infinite;
+  will-change: transform;
+}
+.hero-carousel:hover .hc-track { animation-play-state: paused; }
+@keyframes hcScroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.hc-card {
+  position: relative; flex: 0 0 auto; width: 178px; height: 118px; margin-right: 12px;
+  border-radius: 12px; overflow: hidden; cursor: pointer;
+  border: 1px solid rgba(212,175,55,.28); background: #151515;
+  transition: .2s;
+}
+.hc-card:hover { border-color: var(--gold); box-shadow: 0 8px 24px rgba(212,175,55,.28); transform: translateY(-2px); }
+.hc-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.hc-meta {
+  position: absolute; left: 0; right: 0; bottom: 0; padding: 20px 9px 7px;
+  background: linear-gradient(transparent, rgba(0,0,0,.86));
+  display: flex; flex-direction: column; gap: 2px;
+}
+.hc-meta b {
+  color: #fff; font-size: 11.5px; font-weight: 600; line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;
+}
+.hc-meta i { color: var(--gold-2); font-size: 10.5px; font-style: normal; }
+@media (prefers-reduced-motion: reduce) { .hc-track { animation: none; } }
+@media (max-width: 860px) {
+  .hc-card { width: 138px; height: 92px; }
+  .hc-head { padding: 0 12px; }
+  .hc-tip { display: none; }
+}
 
 /* ---------------- Tab bar ---------------- */
 .tabbar { background: #fff; border-bottom: 1px solid var(--line); position: sticky; top: 62px; z-index: 55; }
@@ -104,7 +155,7 @@ input { font-family: inherit; }
   color: var(--text-2); background: #f4f5f9; transition: .16s; white-space: nowrap;
 }
 .tab:hover { background: var(--accent-soft); color: var(--accent); }
-.tab.active { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; }
+.tab.active { background: linear-gradient(135deg, var(--accent-dark), #7c6212); color: #fff5d6; }
 .tab i { font-style: normal; font-size: 12px; opacity: .8; margin-left: 4px; }
 .tabbar-spacer { flex: 1 1 auto; min-width: 8px; }
 .hint { font-size: 12.5px; color: var(--muted); background: #f5f7fb; border: 1px solid var(--line); border-radius: 8px; padding: 7px 11px; display: inline-block; }
@@ -219,7 +270,7 @@ input { font-family: inherit; }
 .card-cover .badge.lang-en { background: rgba(255,255,255,.94); color: #1d4ed8; }
 .card-cover .badge.json { top: 34px; right: 9px; background: rgba(217,119,6,.95); color: #fff; }
 .card-cover .badge.dev { top: 9px; left: 9px; right: auto; background: rgba(22,163,74,.95); color: #fff; }
-.card-cover .badge.img { background: rgba(255,255,255,.94); color: #7c3aed; }
+.card-cover .badge.img { background: rgba(255,255,255,.94); color: #9a7614; }
 .card-cover .badge.vid { background: rgba(255,255,255,.94); color: #0d9488; }
 .card-cover .badge.play { top: 34px; right: 9px; background: rgba(220,38,38,.95); color: #fff; }
 .card-cover .badge.ref { top: 34px; left: 9px; right: auto; background: rgba(124,58,237,.95); color: #fff; }

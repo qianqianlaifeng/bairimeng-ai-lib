@@ -85,8 +85,9 @@
     return Math.abs(h) % 360;
   }
   function grad(id) {
-    var h = hue(id);
-    return 'linear-gradient(135deg,hsl(' + h + ',68%,58%),hsl(' + ((h + 42) % 360) + ',72%,44%))';
+    // 黑金主题: 色相限定在琥珀-金区间, 不再全谱随机
+    var h = 34 + (hue(id) % 24);
+    return 'linear-gradient(135deg,hsl(' + h + ',74%,52%),hsl(' + ((h + 16) % 360) + ',80%,34%))';
   }
 
   function looksJson(s) {
@@ -338,8 +339,8 @@
         ? '图片提示词 · 点开卡片看完整提示词与风格参考'
         : (state.tab === 'video'
           ? (state.cat === 'hotvideo'
-            ? '⚠️ 当前「热门视频」是 AI 生成的静音画面（没有声音）；想听原声 → 点 动作 / 口播 / 音乐MV 等分类（卡片右下角有 🔊）'
-            : '视频进画面自动播放（静音循环）；点开卡片可听原声（右下角 🔊 的是带原声的）')
+            ? '⚠️ 当前「热门视频」是 AI 生成的静音画面（没有声音）；想听原声 → 点回「全部」或 动作 / 口播 / 音乐MV 等分类（卡片右下角有 🔊）'
+            : '✦ 开放精选视频优先展示；进画面自动静音循环，点开卡片可听原声（右下角 🔊 的是带原声的）')
           : ''));
     // 静音默认分类给个醒目的黄条
     if ($('#hint')) $('#hint').classList.toggle('hint-warn', state.tab === 'video' && state.cat === 'hotvideo');
@@ -367,7 +368,9 @@
   }
 
   function openModal(id) {
-    var p = pool().filter(function (x) { return x.id === id; })[0];
+    // 支持直接传对象（黑金轮播点击时从对应页签的数据池里找好再传入）
+    var p = (id && typeof id === 'object') ? id
+      : pool().filter(function (x) { return x.id === id; })[0];
     if (!p) return;
     state.openId = id;
     stopAutoplay();          // 弹窗里要放原声, 先把网格里的静音循环停掉
@@ -458,7 +461,8 @@
       media.innerHTML = '';
     }
 
-    var descTitle = p.kind === 'video' ? '画面说明' : '画面描述';
+    var descTitle = (p.source === 'oi' || /^oi-/.test(p.id)) ? '简介（中文）'
+      : (p.kind === 'video' ? '画面说明' : '画面描述');
     $('#mDesc').innerHTML = p.desc
       ? '<div class="section-label">' + descTitle + '</div><div class="brief">' +
         esc(p.desc).replace(/\n/g, '<br/>') + '</div>' : '';
@@ -513,9 +517,11 @@
   };
 
   /* 分片清单：每个页签只装自己的分片。
-     灵感画廊 = 画廊分片(图片提示词)，视频提示词在「视频提示词」页签里，两边不混。 */
+     「开放精选」(oi_*) 排在最前 => 优先展示；后面跟原有分片。 */
   function shards(tab) {
     var m = state.manifest, out = [], i;
+    var no = (m.chunks['oi_' + tab]) || 0;
+    for (i = 0; i < no; i++) out.push({ f: 'oi_' + tab + '_' + i, k: tab });
     var n = m.chunks[tab] || 1;
     for (i = 0; i < n; i++) out.push({ f: tab + '_' + i, k: tab });
     return out;
@@ -646,9 +652,7 @@
     syncUrl(tab);
     loadTab(tab, function () {
       buildCategories();
-      // 视频标签默认落在"热门视频": 这部分走本站代理、可播放、且带风格参考;
-      // "全部"里另有 1040 条外链视频(国内可能加载不出来), 让用户自己点进去看
-      if (tab === 'video') { selectCat('hotvideo'); return; }
+      // 视频页默认「全部」: 开放精选(oi)视频排在最前; 旧的热门静音视频在分类里按需筛
       apply();
     });
   }
@@ -880,6 +884,43 @@
     $('#heroVideoPlay').textContent = fmtNum(m.videoPlayable || 0);
   }
 
+  /* ---------- 黑金轮播（开放精选 · 自动滑动） ---------- */
+  function renderHero() {
+    var box = $('#heroCarousel');
+    if (!box) return;
+    var h = (state.manifest && state.manifest.oiHero) || [];
+    if (!h.length) { box.style.display = 'none'; return; }
+    var card = function (x) {
+      return '<div class="hc-card" data-hid="' + esc(x.id) + '" data-hkind="' + x.kind + '" title="点开看提示词">' +
+        '<img loading="lazy" src="' + esc(x.cover) + '" alt="" onerror="this.style.opacity=.2" />' +
+        '<div class="hc-meta"><b>' + esc(x.title) + '</b>' +
+        '<i>' + (x.kind === 'video' ? '▶ 视频' : '🖼 图片') + '</i></div></div>';
+    };
+    // 列表复制一份做无缝循环; 卡片用 margin-right 而不是 gap, 保证两份宽度精确 = 200%
+    var row = h.concat(h).map(card).join('');
+    box.innerHTML = '<div class="hc-head"><span class="hc-t">✦ 开放精选 · 每日上新</span>' +
+      '<span class="hc-tip">自动滑动 · 悬停暂停 · 点击看提示词</span></div>' +
+      '<div class="hc-viewport"><div class="hc-track">' + row + '</div></div>';
+    box.onclick = function (e) {
+      var c = e.target.closest('.hc-card');
+      if (c) openHero(c.dataset.hid, c.dataset.hkind);
+    };
+  }
+  function openHero(id, kind) {
+    var tab = kind === 'video' ? 'video' : 'gal';
+    var arr = state[tab] || [];
+    for (var i = 0; i < arr.length; i++) {
+      if (arr[i].id === id) { openModal(arr[i]); return; }
+    }
+    // 轮播条目理论上在第一分片里; 万一还没到, 等数据拉齐再开
+    ensureAll(tab).then(function () {
+      var a = state[tab] || [];
+      for (var j = 0; j < a.length; j++) {
+        if (a[j].id === id) { openModal(a[j]); return; }
+      }
+    });
+  }
+
   function boot() {
     fetch('data/manifest.json').then(function (r) { return r.json(); }).then(function (m) {
       state.manifest = m;
@@ -894,9 +935,9 @@
       autoplayOn = wantAutoplay();     // 读用户的偏好（默认开）
       setAutoplay(autoplayOn);
       stats();                       // 计数全部来自 manifest，瞬间渲染
+      renderHero();                  // 黑金轮播（开放精选）
       loadTab(start, function () {   // 仅取第 0 片，其余后台渐进拉取
         buildCategories();
-        if (start === 'video') { selectCat('hotvideo'); return; }
         apply();
       });
     }).catch(function (e) {
