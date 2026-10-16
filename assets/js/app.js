@@ -94,6 +94,16 @@
     document.head.appendChild(l);
   });
 
+  /* data 分片缓存击穿: GitHub Pages 返回 max-age=600, 数据刷新(每日 Actions 或
+     手动接入)后, 旧 manifest / 旧分片会在 CDN 上残留最多 10 分钟, 期间用户可能
+     拿到"缺 wf 数据 / Vibe 页签空白"的旧版。make_ghpages 把 data/manifest.json
+     的内容哈希写进 SITE_CONFIG.DATA_VER, 数据一变版本号就变, URL 随之改变,
+     浏览器/CDN 都绕过缓存去取新文件。 */
+  var DATA_VER = (window.SITE_CONFIG && window.SITE_CONFIG.DATA_VER) || '';
+  function dataUrl(f) {
+    return 'data/' + f + (DATA_VER ? '?v=' + DATA_VER : '');
+  }
+
   function esc(s) {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -595,7 +605,7 @@
   function loadChunk(tab, k, cb) {
     var d = shards(tab)[k];
     if (!d) return cb(null);
-    fetch('data/' + d.f + '.json').then(function (r) { return r.json(); }).then(function (rows) {
+    fetch(dataUrl(d.f + '.json')).then(function (r) { return r.json(); }).then(function (rows) {
       if (state.chunks[tab] === k) {
         Array.prototype.push.apply(state[tab], rows.map(EXPAND[d.k]));
         state.chunks[tab] = k + 1;
@@ -680,7 +690,7 @@
     state.loading[tab] = 1;
     if (!silent) busy(true, LOAD_TIP[tab] || '加载中…');
     var first = list[0];
-    fetch('data/' + first.f + '.json')
+    fetch(dataUrl(first.f + '.json'))
       .then(function (r) { return r.json(); }).then(function (rows) {
       state[tab] = rows.map(EXPAND[first ? first.k : tab]);
       state.chunks[tab] = 1;
@@ -698,7 +708,7 @@
 
   // 图片提示词页已下线(2026-10-13): 看图片请去「灵感画廊」。这里保留白名单,
   // 旧链接 (?tab=image) 会自动落回灵感画廊。
-  var TABS = ['gal', 'video', 'vibe', 'text'];
+  var TABS = ['gal', 'video', 'text', 'vibe'];
 
   function tabFromUrl() {
     var t = '';
@@ -1023,7 +1033,7 @@
   }
 
   function boot() {
-    fetch('data/manifest.json').then(function (r) { return r.json(); }).then(function (m) {
+    fetch(dataUrl('manifest.json')).then(function (r) { return r.json(); }).then(function (m) {
       state.manifest = m;
       var start = tabFromUrl() || 'gal';
       state.tab = start;
