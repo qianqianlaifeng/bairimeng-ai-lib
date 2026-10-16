@@ -33,8 +33,13 @@
   var SHRINK_HOSTS = (IMG_SHRINK && IMG_SHRINK.hosts) || [];
   var SHRINK_BASE = (IMG_SHRINK && IMG_SHRINK.base) || '';
   var SHRINK_TAG = (IMG_SHRINK && IMG_SHRINK.tag) || 'o';
+  /* 视频/流媒体绝不走缩图代理: Worker 对 .mp4 等会原样流式转发, 但大文件在国内
+     中间设备会 ECONNRESET(实测视频代理 0/3 成功), 且源站直连视频反而 206 正常(最快 379ms)。
+     所以视频必须保持直连, 只给图片(静态图床原图)做代理缩图。 */
+  var NO_SHRINK_EXT = /\.(mp4|webm|ogg|mov|m4v|m3u8|ts)(\?|$|#)/i;
   function shrinkUrl(u) {
     if (!SHRINK_BASE || !SHRINK_HOSTS.length) return '';
+    if (NO_SHRINK_EXT.test(u)) return '';          // 视频/流媒体: 不代理
     var m = /^https?:\/\/([^\/]+)(\/.*)$/.exec(u);
     if (!m) return '';
     var host = m[1].toLowerCase();
@@ -935,14 +940,29 @@
     if (!box) return;
     var h = (state.manifest && state.manifest.oiHero) || [];
     if (!h.length) { box.style.display = 'none'; return; }
-    var card = function (x) {
+    var card = function (x, eager) {
+      // 轮播封面同样要过 coverUrl(): 否则会用源图床原图(单张最大 1.2MB), 首屏等十几秒
+      // eager 只给"首屏能看见的头几张", 其余交给浏览器按需解码
       return '<div class="hc-card" data-hid="' + esc(x.id) + '" data-hkind="' + x.kind + '" title="点开看提示词">' +
-        '<img decoding="async" src="' + esc(coverUrl(x.cover)) + '" alt="" onerror="this.style.opacity=.2" />' +
+        '<img decoding="async"' + (eager ? ' fetchpriority="high"' : ' loading="lazy"') +
+        ' src="' + esc(coverUrl(x.cover)) + '" alt="" onerror="this.style.opacity=.2" />' +
         '<div class="hc-meta"><b>' + esc(x.title) + '</b>' +
         '<i>' + (x.kind === 'video' ? '▶ 视频' : '🖼 图片') + '</i></div></div>';
     };
     // 列表复制一份做无缝循环; 卡片用 margin-right 而不是 gap, 保证两份宽度精确 = 200%
-    var row = h.concat(h).map(card).join('');
+    // 1440 宽视口首屏只看得见 ~7 张, 前 10 张给高优先级, 其余走懒加载
+    var EAGER = 10;
+    var row = h.map(function (x, i) { return card(x, i < EAGER); })
+      .concat(h.map(function (x) { return card(x, false); })).join('');
+    // 轮播在最上面, 比网格更该先到手: 给首屏可见的头几张发 preload, 抢在网格之前排队
+    var head = document.querySelector('head');
+    h.slice(0, EAGER).forEach(function (x) {
+      var u = coverUrl(x.cover);
+      if (!u || !/^https?:\/\//.test(u)) return;
+      var l = document.createElement('link');
+      l.rel = 'preload'; l.as = 'image'; l.href = u;
+      head.appendChild(l);
+    });
     box.innerHTML = '<div class="hc-head"><span class="hc-t">✦ 开放精选 · 每日上新</span>' +
       '<span class="hc-tip">自动滑动 · 悬停暂停 · 点击看提示词</span></div>' +
       '<div class="hc-viewport"><div class="hc-track">' + row + '</div></div>';
