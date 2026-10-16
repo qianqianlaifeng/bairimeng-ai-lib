@@ -669,10 +669,18 @@
   function loadTab(tab, cb, silent) {
     if (state.chunks[tab] > 0) { cb(); return; }   // 已加载过第 0 片
     if (state.loading[tab]) return;
+    var list = shards(tab);
+    if (!list.length) {                            // 该页签暂无分片(数据未刷新到 CDN / 空源): 显示空态
+      state[tab] = state[tab] || [];
+      state.chunks[tab] = 1;
+      finishChunks(tab);
+      cb();
+      return;
+    }
     state.loading[tab] = 1;
     if (!silent) busy(true, LOAD_TIP[tab] || '加载中…');
-    var first = shards(tab)[0];
-    fetch('data/' + (first ? first.f : tab + '_0') + '.json')
+    var first = list[0];
+    fetch('data/' + first.f + '.json')
       .then(function (r) { return r.json(); }).then(function (rows) {
       state[tab] = rows.map(EXPAND[first ? first.k : tab]);
       state.chunks[tab] = 1;
