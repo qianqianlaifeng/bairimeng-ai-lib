@@ -12,7 +12,7 @@
     app/data/oi_video_N.json  视频行 13 字段(同 video_*)
     .cache/oi_meta.json       给 build_oi.py 用的统计(不进仓库)
 - 简介用中文: 标题取 zh-Hans 首句(截 42 字), desc 放 zh-Hans 全文。
-- 媒体一律走 /m/o/ 代理路径, 仓库里不出现任何真实图床域名。
+- 媒体直连源图床(该主机国内可达、有 1 年强缓存), 不再走 Worker 代理。
 """
 import json
 import os
@@ -27,12 +27,39 @@ OUT = os.path.join(ROOT, "app", "data")
 CACHE = os.path.join(ROOT, ".cache")
 PAGE = 60
 PAGES = int(os.environ.get("OI_PAGES", "20"))
-CHUNK = 300          # 每个分片的条数
-PROXY = "/m/o/"      # Worker 代号 o -> 镜像主机(注入在 Worker 环境变量里)
+CHUNK = 100          # 每个分片的条数(首屏只拉第 0 片, 拆小能明显加快首屏)
+# 媒体直连源图床。该主机国内可达、带 1 年强缓存。
+# 注意: 该图床有 Referer 防盗链(带 Referer 返回 403, 会被浏览器 ORB 拦),
+# 因此站点的 HTML 必须声明 <meta name="referrer" content="no-referrer">。
+# 主机名不写死在代码里, 运行时从 secrets.json 的 IMG_HOST_O / 环境变量取。
+PROXY = ""           # 由 img_base() 在 main() 里填好
 
 # 工具名 -> 分类(中文标签)。模型名保留原名, 用户按工具筛。
 TOOLS = {}
 ICON = "🎨"
+
+
+def img_base():
+    """源图床基础地址。优先环境变量 IMG_BASE_O, 其次 secrets.json 的 IMG_HOST_O。"""
+    v = os.environ.get("IMG_BASE_O", "")
+    if not v:
+        sp = os.path.join(ROOT, "secrets.json")
+        if os.path.exists(sp):
+            s = json.load(open(sp, encoding="utf-8"))
+            h = s.get("IMG_HOST_O") or ""
+            if h:
+                v = "https://" + h
+    if not v:
+        sys.exit("!! 缺少 IMG_HOST_O (环境变量 IMG_BASE_O 或 secrets.json)")
+    return v.rstrip("/") + "/"
+
+
+def proxy_rel(local):
+    """镜像完整 URL -> 直连地址(换成本地配置的图床主机前缀)。"""
+    if not local:
+        return ""
+    m = re.match(r"^https://[^/]+/(.+)$", local)
+    return (PROXY + m.group(1)) if m else ""
 
 
 def api_base():
@@ -67,11 +94,11 @@ def get(url, tries=3):
 
 
 def proxy_rel(local):
-    """镜像完整 URL -> /m/o/<相对路径>。非镜像域名返回空。"""
+    """镜像完整 URL -> 直连地址。只保留源图床路径, 换成本地配置的主机前缀。"""
     if not local:
         return ""
     m = re.match(r"^https://[^/]+/(.+)$", local)
-    return PROXY + m.group(1) if m else ""
+    return (PROXY + m.group(1)) if m else ""
 
 
 def zhtitle(zh):
@@ -130,7 +157,10 @@ def fetch_all():
 
 
 def main():
+    global PROXY
     os.makedirs(CACHE, exist_ok=True)
+    PROXY = img_base()
+    print("[0/3] 媒体基础地址: %s" % PROXY)
     print("[1/3] 分页抓取…")
     items = fetch_all()
     if not items:

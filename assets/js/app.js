@@ -282,7 +282,7 @@
     if (flowVid) {
       // 视频本体当封面（按视频真实比例撑高）；万一视频加载不出来就退回分类图，
       // 不留空白块
-      inner = '<video class="cover-flow" muted loop playsinline preload="metadata" ' +
+      inner = '<video class="cover-flow" muted loop playsinline preload="metadata" referrerpolicy="no-referrer" ' +
         'src="' + esc(coverUrl(p.videoUrl)) + '" data-src="' + esc(coverUrl(p.videoUrl)) + '"' +
         ' onerror="this.style.display=\'none\';var w=this.parentNode;' +
         'w.classList.add(\'has-img\');w.style.backgroundImage=\'url(' + esc(fb) + ')\';' +
@@ -296,7 +296,7 @@
         'if(r>0.2&&r<5)this.parentNode.style.setProperty(\'--ar\',r.toFixed(3))"' +
         ' onerror="this.onerror=null;this.src=this.getAttribute(\'data-fb\')" />';
       if (isVid) {
-        inner += '<video class="hovervid" muted loop playsinline preload="none" data-src="' +
+        inner += '<video class="hovervid" muted loop playsinline preload="none" referrerpolicy="no-referrer" data-src="' +
           esc(coverUrl(p.videoUrl)) + '"></video>';
       }
     } else {
@@ -403,7 +403,7 @@
       // 点卡片算用户操作, 浏览器允许带声音自动播放 —— 有原声的直接出声
       media.innerHTML =
         '<div class="video-wrap">' +
-          '<video class="preview-video" controls playsinline autoplay preload="metadata" ' +
+          '<video class="preview-video" controls playsinline autoplay preload="metadata" referrerpolicy="no-referrer" ' +
           (p.cover ? 'poster="' + esc(coverUrl(p.cover)) + '" ' : '') +
           'src="' + esc(coverUrl(p.videoUrl)) + '"></video>' +
           '<div class="media-state" id="mVState"><span class="spin"></span>' +
@@ -892,7 +892,7 @@
     if (!h.length) { box.style.display = 'none'; return; }
     var card = function (x) {
       return '<div class="hc-card" data-hid="' + esc(x.id) + '" data-hkind="' + x.kind + '" title="点开看提示词">' +
-        '<img loading="lazy" src="' + esc(x.cover) + '" alt="" onerror="this.style.opacity=.2" />' +
+        '<img decoding="async" src="' + esc(coverUrl(x.cover)) + '" alt="" onerror="this.style.opacity=.2" />' +
         '<div class="hc-meta"><b>' + esc(x.title) + '</b>' +
         '<i>' + (x.kind === 'video' ? '▶ 视频' : '🖼 图片') + '</i></div></div>';
     };
