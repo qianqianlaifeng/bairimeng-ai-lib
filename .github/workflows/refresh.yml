@@ -81,10 +81,10 @@ jobs:
         env:
           GAL_OUTDIR: ${{ github.workspace }}/data
           GAL_RAW_DIR: ${{ github.workspace }}/.cache
-          # 案例源(公开 MIT 仓库)与媒体路径都可用环境变量覆盖
-          H3_REPO: ${{ secrets.H3_REPO }}
-          H3_MEDIA_BASE: ${{ secrets.H3_MEDIA_BASE }}
-          H3_CAP: '300'
+          # 案例源(公开 MIT 库, 全部自托管可播)与媒体基址均可用环境变量覆盖
+          H3_BASE: ${{ secrets.H3_BASE }}
+          H3_CAP: '3000'
+          H3_PROMPT_CAP: '900'
         run: |
           python tools/fetch_h3.py
           python tools/build_h3.py

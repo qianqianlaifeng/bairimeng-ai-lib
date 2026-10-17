@@ -15,10 +15,10 @@ window.SITE_CONFIG = {
      data/*.json 请求后面(?v=), 数据一变 URL 就变, 击穿 GitHub Pages 的
      max-age=600 缓存, 避免用户拿到缺 wf 数据的旧 manifest。
      每日 Actions 刷新数据后也会同步重写这个值(见 refresh.yml)。 */
-  DATA_VER: '922d93a7',
+  DATA_VER: 'f3fe43a6',
   /* 海螺 H3 案例媒体基址: h3 数据分片只存相对路径(/minimax/...),
      app.js expandH3 渲染时拼这个前缀。每日刷新脚本用它做 HEAD 探测。 */
-  H3_MEDIA: 'https://tryminimax.asia',
+  H3_MEDIA: 'https://awesome-minimax-h3-cases.zzskysilent.com',
   IMG_SHRINK: {
     base: 'https://img.fakashop.ccwu.cc',
     tag: 'o',

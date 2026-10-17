@@ -449,6 +449,14 @@
   }
 
   function bodyHtml(p) {
+    /* 案例类条目(如 H3 库)原帖未公开完整提示词时 body 为空, 这里给一段说明,
+       避免弹窗正文区一片空白。desc 里带中文摘要与视频规格。 */
+    if (!p.body) {
+      return '<div class="prompt-text">' +
+        '该案例原帖未公开完整提示词。' +
+        (p.desc ? '<br><br>' + esc(p.desc) : '') +
+        '</div>';
+    }
     if (p.isJson) {
       var pretty;
       try { pretty = JSON.stringify(JSON.parse(p.body), null, 2); }
