@@ -16,6 +16,9 @@ window.SITE_CONFIG = {
      max-age=600 缓存, 避免用户拿到缺 wf 数据的旧 manifest。
      每日 Actions 刷新数据后也会同步重写这个值(见 refresh.yml)。 */
   DATA_VER: 'd4f964a7',
+  /* 海螺 H3 案例媒体基址: h3 数据分片只存相对路径(/minimax/...),
+     app.js expandH3 渲染时拼这个前缀。每日刷新脚本用它做 HEAD 探测。 */
+  H3_MEDIA: 'https://tryminimax.asia',
   IMG_SHRINK: {
     base: 'https://img.fakashop.ccwu.cc',
     tag: 'o',
