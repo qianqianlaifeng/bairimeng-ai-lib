@@ -15,7 +15,11 @@
 行格式(14 字段, 与 Vibe 行一致, 尾缀 media_type 区分视频卡/图卡):
   [id, 标题, prompt, cat, desc, cover, videoUrl, model, author, lang, source, bodyLang, refs, media_type]
 域名/路径均可被环境变量覆盖, 便于换源。
+注意: cover/videoUrl 写**相对路径**(/minimax/...), 域名不进数据分片 ——
+      由前端 config.js 的 H3_MEDIA(视频案例媒体基址) 拼接, 与 IMG_BASE 同款思路。
+      MEDIA(H3_MEDIA_BASE) 只服务于抓取期的 HEAD 探测。
 """
+import base64
 import glob
 import json
 import os
@@ -32,10 +36,8 @@ DATA = os.environ.get("GAL_OUTDIR") or os.path.join(ROOT, "app", "data")
 
 REPO = os.environ.get("H3_REPO") or "xianyu110/awesome-minimax-h3-prompts"
 BRANCH = os.environ.get("H3_BRANCH") or "main"
-GAL_EN = os.environ.get("H3_GAL_EN") or (
-    "https://raw.githubusercontent.com/%s/%s/prompts/GALLERY.md" % (REPO, BRANCH))
-GAL_ZH = os.environ.get("H3_GAL_ZH") or (
-    "https://raw.githubusercontent.com/%s/%s/prompts/GALLERY.zh-CN.md" % (REPO, BRANCH))
+GAL_EN = os.environ.get("H3_GAL_EN") or ""
+GAL_ZH = os.environ.get("H3_GAL_ZH") or ""
 MEDIA = (os.environ.get("H3_MEDIA_BASE") or "https://tryminimax.asia").rstrip("/")
 VIDEO_PATH = os.environ.get("H3_VIDEO_PATH") or "/minimax/source-videos/%s.mp4"
 # thumb_name 已含 .jpg 后缀(取自 GALLERY 的 img 文件名), 这里不再拼
@@ -44,7 +46,7 @@ THUMB_PATH = os.environ.get("H3_THUMB_PATH") or "/minimax/prompts/thumbs/%s-%s"
 OUTDIR = os.environ.get("GAL_RAW_DIR") or os.path.join(ROOT, ".cache")
 CAP = int(os.environ.get("H3_CAP") or "300")
 PROBE_CAP = int(os.environ.get("H3_PROBE_CAP") or "260")
-TIMEOUT = int(os.environ.get("H3_TIMEOUT") or "12")
+TIMEOUT = int(os.environ.get("H3_TIMEOUT") or "20")
 
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
@@ -65,11 +67,33 @@ CAT_MAP = {
 CAT_FALLBACK = ("h3-misc", "H3 案例", "⚡")
 
 
-def http_get(url, binary=False):
-    req = urllib.request.Request(url, headers=UA)
-    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
-        data = r.read()
-    return data if binary else data.decode("utf-8", "replace")
+def http_get(url, binary=False, tries=3):
+    last = None
+    for i in range(tries):
+        try:
+            req = urllib.request.Request(url, headers=UA)
+            with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+                data = r.read()
+            return data if binary else data.decode("utf-8", "replace")
+        except Exception as e:
+            last = e
+            time.sleep(1.5 * (i + 1))
+    raise last
+
+
+def fetch_md(env_url, repo_path):
+    """优先 raw.githubusercontent.com; 该域在部分网络下会超时,
+    自动退 GitHub Contents API(base64, 不需要 token)。"""
+    if env_url:
+        return http_get(env_url)
+    raw = "https://raw.githubusercontent.com/%s/%s/%s" % (REPO, BRANCH, repo_path)
+    try:
+        return http_get(raw)
+    except Exception as e:
+        print("[h3] raw 超时/失败, 退 API: %s (%s)" % (repo_path, e))
+        api = "https://api.github.com/repos/%s/contents/%s?ref=%s" % (REPO, BRANCH, repo_path)
+        d = json.loads(http_get(api))
+        return base64.b64decode(d["content"]).decode("utf-8", "replace")
 
 
 def head_ok(url):
@@ -122,13 +146,13 @@ def main():
     t0 = time.time()
     print("[h3] 拉取 GALLERY(英文) ...")
     try:
-        md_en = http_get(GAL_EN)
+        md_en = fetch_md(GAL_EN, "prompts/GALLERY.md")
     except Exception as e:
         print("!! GALLERY 英文版拉取失败:", e)
         return
     print("[h3] 拉取 GALLERY(中文) ...")
     try:
-        md_zh = http_get(GAL_ZH)
+        md_zh = fetch_md(GAL_ZH, "prompts/GALLERY.zh-CN.md")
     except Exception as e:
         print("!! GALLERY 中文版拉取失败(标题回退英文):", e)
         md_zh = ""
@@ -197,8 +221,8 @@ def main():
             e["prompt"],
             key,
             "%s%s" % (label, (" · " + author) if author else ""),
-            MEDIA + THUMB_PATH % (e["vid"], e["thumb_name"]),
-            (MEDIA + VIDEO_PATH % e["vid"]) if is_video else "",
+            THUMB_PATH % (e["vid"], e["thumb_name"]),        # 相对路径: 域名放 config.js(H3_MEDIA)
+            (VIDEO_PATH % e["vid"]) if is_video else "",      # 同上; MEDIA 仅用于上面的 HEAD 探测
             "MiniMax H3",
             author,
             "en",
