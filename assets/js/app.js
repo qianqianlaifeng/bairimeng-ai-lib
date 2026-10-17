@@ -241,7 +241,7 @@
       videoUrl: isVideo ? r[6] : '', silent: false, bodyLang: r[11], gal: !isVideo
     };
   }
-  // 海螺 H3 行(14 字段): 与 Vibe 同行结构, 分类表换成 h3Cats。
+  // 开源 MiniMax H3 行(14 字段): 与 Vibe 同行结构, 分类表换成 h3Cats。
   // 数据只存相对媒体路径, 域名(config.js H3_MEDIA)在这里拼 —— 与 IMG_BASE 同款。
   function expandH3(r) {
     var m = state.manifest;
@@ -606,7 +606,7 @@
     gal: '正在加载灵感画廊…',
     video: '正在加载视频提示词…',
     vibe: '正在加载 Vibe Coding…',
-    h3: '正在加载海螺 H3…'
+    h3: '正在加载开源 MiniMax H3…'
   };
 
   /* 分片清单：每个页签只装自己的分片。
@@ -614,7 +614,7 @@
   function shards(tab) {
     var m = state.manifest, out = [], i;
     // 外部图库(wf): 图片折进图库 / 视频折进视频页 / Vibe Coding 独立页签
-    // 海螺 H3(h3): 独立页签, 行是 14 字段混合视频卡/图卡
+    // 开源 MiniMax H3(h3): 独立页签, 行是 14 字段混合视频卡/图卡
     var wfKey = tab === 'vibe' ? 'wf_vibe' : (tab === 'gal' ? 'wf_image' : (tab === 'video' ? 'wf_video' : (tab === 'h3' ? 'h3_video' : '')));
     if (wfKey) {
       var nw = m.chunks[wfKey] || 0;
@@ -733,7 +733,7 @@
 
   // 图片提示词页已下线(2026-10-13): 看图片请去「灵感画廊」。这里保留白名单,
   // 旧链接 (?tab=image) 会自动落回灵感画廊。
-  var TABS = ['gal', 'video', 'text', 'vibe', 'h3'];
+  var TABS = ['gal', 'video', 'h3', 'text', 'vibe'];
 
   function tabFromUrl() {
     var t = '';
