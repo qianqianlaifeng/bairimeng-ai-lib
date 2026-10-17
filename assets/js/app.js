@@ -241,20 +241,26 @@
       videoUrl: isVideo ? r[6] : '', silent: false, bodyLang: r[11], gal: !isVideo
     };
   }
-  // 海螺 H3 行(14 字段): 与 Vibe 同行结构, 分类表换成 h3Cats
+  // 海螺 H3 行(14 字段): 与 Vibe 同行结构, 分类表换成 h3Cats。
+  // 数据只存相对媒体路径, 域名(config.js H3_MEDIA)在这里拼 —— 与 IMG_BASE 同款。
   function expandH3(r) {
     var m = state.manifest;
     var c = (m.h3Cats || {})[r[3]] || ['H3 案例', '⚡'];
     var src = (m.sources || {})[r[10]] || ['', ''];
     var isVideo = (r[13] || 'video') !== 'image';
+    var h3base = (window.SITE_CONFIG && window.SITE_CONFIG.H3_MEDIA) || '';
+    var h3u = function (p) {
+      if (!p) return '';
+      return /^https?:\/\//i.test(p) ? p : (h3base + p);
+    };
     return {
-      id: r[0], title: r[1], body: r[2], cat: r[3], desc: r[4], cover: r[5],
+      id: r[0], title: r[1], body: r[2], cat: r[3], desc: r[4], cover: h3u(r[5]),
       catLabel: c[0], catIcon: c[1], model: r[7], author: r[8], lang: r[9],
       license: src[0], url: src[1], source: r[10], refs: r[12] || [],
       dev: false, chars: (r[2] || '').length, isJson: looksJson(r[2]),
       fb: 'assets/img/cat-others.jpg',
       kind: isVideo ? 'video' : 'image', type: isVideo ? 'VIDEO' : 'IMAGE',
-      videoUrl: isVideo ? r[6] : '', silent: false, bodyLang: r[11], gal: !isVideo
+      videoUrl: isVideo ? h3u(r[6]) : '', silent: false, bodyLang: r[11], gal: !isVideo
     };
   }
   var EXPAND = { text: expandText, image: expandImage, video: expandVideo, gal: expandGal, vibe: expandVibe, h3: expandH3 };
