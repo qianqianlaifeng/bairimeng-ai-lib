@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """把 h3_video_* 分片并入 manifest(幂等)。仿 build_wf.py。
-  h3_video_*  -> 「海螺 H3」独立页签(MiniMax H3 视频案例, 尾字段区分视频卡/图卡)
+  h3_video_*  -> 「开源 MiniMax H3」独立页签(MiniMax H3 视频案例, 尾字段区分视频卡/图卡)
 """
 import glob
 import json
@@ -14,7 +14,7 @@ DATA = os.environ.get("GAL_OUTDIR") or os.path.join(ROOT, "app", "data")
 CACHE = os.environ.get("GAL_RAW_DIR") or os.path.join(ROOT, ".cache")
 MANI = os.path.join(DATA, "manifest.json")
 
-SOURCE_LABEL = ["海螺 H3 社区案例", ""]   # 对外中性名
+SOURCE_LABEL = ["开源 MiniMax H3", ""]   # 对外中性名
 
 
 def re_num(p):
