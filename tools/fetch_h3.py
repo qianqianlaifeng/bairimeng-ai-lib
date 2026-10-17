@@ -9,7 +9,8 @@
   2) 可播视频与本地封面由案例站自托管(同域媒体路径):
        /minimax/source-videos/<vid>.mp4        —— 成片(目前 7 条)
        /minimax/prompts/thumbs/<vid>-<name>.jpg —— 全部条目的本地封面
-     逐个 HEAD 探测视频是否存在; 存在的渲染成视频卡, 其余渲染成图卡(封面+完整提示词)。
+     逐个 HEAD 探测视频是否存在; **只保留可播视频**(2026-10-17 用户要求:
+     图卡不接入, 因为其余条目的视频在 X 图床、国内不可达)。
 
 产物: <GAL_RAW_DIR>/h3_raw.json  {rows, cats, total, videos, images}
 行格式(14 字段, 与 Vibe 行一致, 尾缀 media_type 区分视频卡/图卡):
@@ -204,6 +205,10 @@ def main():
 
     rows, cats = [], {}
     for e in merged:
+        # 用户要求(2026-10-17): 只要可播视频, 图卡不接入(X 图床国内不可达)
+        is_video = e["vid"] in lv
+        if not is_video:
+            continue
         if len(rows) >= CAP:
             break
         cat_src = e["cat_zh"] or e["cat_en"]
@@ -214,7 +219,6 @@ def main():
         m = re.search(r"x\.com/([^/]+)/status/", e["tweet"] or "")
         if m:
             author = "@" + m.group(1)
-        is_video = e["vid"] in lv
         rows.append([
             "h3-" + e["vid"],
             title,
@@ -231,6 +235,9 @@ def main():
             [e["tweet"]] if e["tweet"] else [],
             "video" if is_video else "image",
         ])
+
+    # 可播视频置顶(X 图床在国内不可达, 图卡只能排后面; 稳定排序, 组内保持原序)
+    rows.sort(key=lambda r: 0 if r[13] == "video" else 1)
 
     # 原始行缓存 + 站点分片(100 条/片, 与其它来源一致)
     os.makedirs(OUTDIR, exist_ok=True)
