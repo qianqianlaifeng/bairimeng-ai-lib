@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """把 h3_video_* 分片并入 manifest(幂等)。仿 build_wf.py。
-  h3_video_*  -> 「开源 MiniMax H3」独立页签(MiniMax H3 视频案例, 尾字段区分视频卡/图卡)
+  h3_video_*  -> 「开源 MiniMax H3」独立页签
+  用户要求(2026-10-17): 该页签**只要可播视频**, 图卡一律过滤。
+  fetch 失败时本脚本会用旧缓存兜底重写分片, 保证图卡不会回流。
 """
 import glob
 import json
@@ -29,7 +31,17 @@ def load_rows(pattern):
             rows.extend(json.load(open(f, encoding="utf-8")))
         except Exception:
             pass
-    return rows
+    # 只要可播视频(尾字段 media_type != 'image'); 图卡一律过滤, 防旧数据回流
+    return [r for r in rows if (r[13] if len(r) > 13 else "video") != "image"]
+
+
+def write_shards(rows, per=100):
+    for f in glob.glob(os.path.join(DATA, "h3_video_*.json")):
+        os.remove(f)
+    for i in range(0, len(rows), per):
+        json.dump(rows[i:i + per],
+                  open(os.path.join(DATA, "h3_video_%d.json" % (i // per)), "w", encoding="utf-8"),
+                  ensure_ascii=False)
 
 
 def nfiles(pattern):
@@ -38,9 +50,11 @@ def nfiles(pattern):
 
 def main():
     rows = load_rows("h3_video_*.json")
+    # 分片与过滤结果对齐: fetch 失败(旧缓存含图卡)时兜底重写, 图卡不会回流
+    per = int(os.environ.get("H3_SHARD") or "100")
+    write_shards(rows, per)
     if not rows:
-        print("[h3] 无 h3 分片, 跳过")
-        return
+        print("[h3] 无可播视频行, 页签为空")
 
     labels = {}
     rp = os.path.join(CACHE, "h3_raw.json")
@@ -52,15 +66,12 @@ def main():
 
     m = json.load(open(MANI, encoding="utf-8"))
 
-    # ---- 分类标签 + 分类计数 ----
+    # ---- 分类标签 + 分类计数(整体替换, 不吃上一轮的残留) ----
     ccnt = {}
     for r in rows:
         ccnt[r[3]] = ccnt.get(r[3], 0) + 1
-    h3Cats = dict(m.get("h3Cats") or {})
-    for k, n in ccnt.items():
-        h3Cats[k] = labels.get(k, ["H3 案例", "⚡"])
-        m.setdefault("catCounts", {}).setdefault("h3", {})[k] = n
-    m["h3Cats"] = h3Cats
+    m["h3Cats"] = {k: labels.get(k, ["H3 案例", "⚡"]) for k in ccnt}
+    m.setdefault("catCounts", {})["h3"] = ccnt
 
     # ---- 计数(绝对赋值, 与 vibeCount 同模式) ----
     n_all = len(rows)
@@ -78,7 +89,7 @@ def main():
 
     json.dump(m, open(MANI, "w", encoding="utf-8"), ensure_ascii=False)
     print("[h3] manifest: 行 %d (可播 %d) | h3Count=%s | chunks h3_video=%d | cats=%d" %
-          (n_all, n_video, m["h3Count"], ch["h3_video"], len(h3Cats)))
+          (n_all, n_video, m["h3Count"], ch["h3_video"], len(m["h3Cats"])))
 
 
 if __name__ == "__main__":
