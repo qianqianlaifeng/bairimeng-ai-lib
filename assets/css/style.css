@@ -254,6 +254,9 @@ input { font-family: inherit; }
 .card-cover .tile-cat { font-style: normal; font-size: 11px; color: rgba(255, 255, 255, .82); }
 .card-cover .cat-icon { font-size: 44px; filter: drop-shadow(0 3px 8px rgba(0,0,0,.28)); transition: .35s; position: relative; z-index: 1; }
 .card-cover.has-img .cat-icon { display: none; }
+/* 封面没加载出来(图床不通/还在路上)时: 渐变 + 分类图标 + 常显标题,
+   一眼能看出这是不同的条目, 而不是"整屏同一张图" */
+.card-cover:not(.has-img) .tile-overlay { opacity: 1; }
 .prompt-card:hover .card-cover .cat-icon { transform: scale(1.12) rotate(-4deg); }
 .prompt-card:hover .card-cover .cover { transform: scale(1.05); }
 .card-cover .cover { transition: .4s; }
