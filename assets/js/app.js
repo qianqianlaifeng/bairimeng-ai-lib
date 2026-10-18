@@ -358,11 +358,15 @@
          全程不遮罩: 没数据时显示"正在加载该分类", 有数据就画, 条数持续增长。 */
       if (state.cat) {
         var t0 = state.tab, c0 = state.cat;
+        catWait[catKey(t0, c0)] = 1;   // 首屏包还在路上, 界面要显示"正在加载该分类"
+        // 后台预取的大分片立刻停: 不然 20KB 的分类包会被饿到十几秒(线上实测过)
+        stopStream(t0);
         if (t0 === 'gal') {
           var man = state.manifest;
           var pk = man && man.galCatPack && man.galCatPack[c0];
           var after = function () {
             if (state.tab === t0 && state.cat === c0) pullForCat(t0, c0);
+            else delete catWait[catKey(t0, c0)];
           };
           // 先等首屏包(单文件), 到了再补分片 —— 否则两个请求抢带宽, 首屏反而更慢
           if (pk) loadPack(t0, pk, 'gal', c0, after);
@@ -371,6 +375,9 @@
           // 视频/文本等页签分片少(几个到几十个), 直接后台并发拉完, 边拉边刷
           streamChunks(t0, true);
         }
+      } else if (!state.done[t0] && state.chunks[t0] < AUTO_CHUNKS) {
+        // 回到「全部」: 后台预取可能被之前的分类点击掐过, 这里续上(只补到上限)
+        streamChunks(t0);
       }
     };
 
@@ -489,9 +496,10 @@
     var shown = state.list.slice(0, state.page * PAGE_SIZE);
     $('#grid').innerHTML = shown.map(function (p, i) { return cardHtml(p, i); }).join('');
     var ck = state.cat ? catKey(state.tab, state.cat) : '';
-    // 还在补数据: 搜索没拉全, 或分类没拉全(gallery 按分片补, 其他页签整页拉)
+    // 还在补数据: 搜索没拉全, 或分类没拉全(gallery 按分片补, 其他页签整页拉)。
+    // catWait 覆盖"点了分类、首屏包还在路上"那 1~2 秒, 不然界面会閃"没有匹配的提示词"。
     var stillLoading = !state.done[state.tab] &&
-      (!!state.q.trim() || (!!state.cat && (state.tab !== 'gal' || !!catPulling[ck])));
+      (!!state.q.trim() || (!!state.cat && (state.tab !== 'gal' || !!catPulling[ck] || !!catWait[ck])));
     var empty = $('#empty');
     if (state.list.length) {
       empty.style.display = 'none';
@@ -503,7 +511,16 @@
         : '<strong>没有匹配的提示词</strong>换个关键词或分类试试';
     }
     $('#loadMoreWrap').style.display = shown.length < state.list.length ? '' : 'none';
-    $('#resultCount').textContent = '（' + state.list.length + ' 条' + (stillLoading ? '，加载中…' : '') + '）';
+    // 条数要说老实: 分类 chip 上那个数是全量(比如 1335), 这里只是已经拉到的。
+    // 分批拉取(首屏包 120 + 分片补到 240)是为了不把带宽占满, 差额标出来,
+    // 想要更多可以点「加载更多」。不然用户会以为数据丢了。
+    var catTotal = 0;
+    if (state.cat && state.manifest && state.manifest.catCounts) {
+      catTotal = (state.manifest.catCounts[state.tab] || {})[state.cat] || 0;
+    }
+    var tail = catTotal > state.list.length ? ' / 共 ' + catTotal + ' 条' : '';
+    $('#resultCount').textContent = '（' + state.list.length + ' 条' + tail +
+      (stillLoading ? '，加载中…' : '') + '）';
     var active = $('#categoriesScroll .chip.active');
     var label = active ? active.textContent.replace(/\d+$/, '').trim() : '全部';
     $('#listTitle').firstChild.nodeValue = state.q ? '搜索“' + state.q + '”' : label;
@@ -733,6 +750,30 @@
      「加载更多」和首屏顺序不乱。 */
   var PARALLEL = 4;
   var inflight = {}, nextK = {}, chunkBuf = {}, applyTimer = {};
+  // 正在飞的分片请求。用户一旦有了明确目标(点分类 / 搜索), 就要把它们掐掉:
+  // oi_gal_0 单个就 444KB, 线上实测它一个把 22 秒的带宽全占了, 20KB 的
+  // "分类首屏包"被饿到 16 秒才到 —— 用户看到的就是"点了分类一直 0 条"。
+  var chunkAbort = {};
+  // loadTab 首片请求的中断句柄(与 chunkAbort 分开: 首片有它自己的成功/失败语义)
+  var firstAbort = {};
+
+  /* 停掉某页签的后台预取请求。已下载并缓冲的片保留(下次 flushChunks 会并入),
+     没下载完的片作废, 之后按需重新拉。 */
+  function stopStream(tab) {
+    var reqs = chunkAbort[tab];
+    if (reqs) {
+      Object.keys(reqs).forEach(function (k) {
+        try { reqs[k].abort(); } catch (e) {}
+        delete reqs[k];
+      });
+    }
+    if (firstAbort[tab]) {
+      try { firstAbort[tab].abort(); } catch (e) {}
+      delete firstAbort[tab];
+    }
+    inflight[tab] = 0;
+    nextK[tab] = state.chunks[tab];   // 从"下一个该并入的片"重新起算
+  }
 
   function streamChunks(tab, force) {
     if (state.done[tab]) return;
@@ -745,23 +786,37 @@
     if (nextK[tab] == null || nextK[tab] < state.chunks[tab]) nextK[tab] = state.chunks[tab];
     inflight[tab] = inflight[tab] || 0;
     chunkBuf[tab] = chunkBuf[tab] || {};
+    chunkAbort[tab] = chunkAbort[tab] || {};
 
     while (inflight[tab] < PARALLEL && nextK[tab] < limit) {
       var k = nextK[tab]++;
       inflight[tab]++;
-      (function (kk) {
-        fetch(dataUrl(list[kk].f + '.json'))
+      var ctl = (window.AbortController) ? new AbortController() : null;
+      if (ctl) chunkAbort[tab][k] = ctl;
+      (function (kk, c) {
+        var opts = c ? { signal: c.signal } : undefined;
+        fetch(dataUrl(list[kk].f + '.json'), opts)
           .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-          .then(function (rows) { chunkBuf[tab][kk] = rows; })
-          .catch(function () { chunkBuf[tab][kk] = null; })   // 单片失败: 跳过, 不堵后面的
+          .then(function (rows) {
+            if (c && c.signal.aborted) return;         // 已被 stopStream 掐掉: 成果作废
+            chunkBuf[tab][kk] = rows;
+          })
+          .catch(function (e) {
+            if (c && c.signal.aborted) return;
+            chunkBuf[tab][kk] = null;   // 单片失败: 跳过, 不堵后面的
+          })
           .then(function () {
+            if (c) {
+              if (chunkAbort[tab]) delete chunkAbort[tab][kk];
+              if (c.signal.aborted) return;           // inflight 已被 stopStream 清零
+            }
             inflight[tab]--;
             if (flushChunks(tab, list)) scheduleApply(tab);
             if (state.done[tab]) return;
             if (nextK[tab] < limit) streamChunks(tab, force);
             else if (inflight[tab] === 0 && (limit >= total || force)) finishChunks(tab);
           });
-      })(k);
+      })(k, ctl);
     }
   }
 
@@ -804,6 +859,9 @@
      相关的那一组, 6 路并发, 哪片先到先并入(筛选时顺序无所谓), 每片完成刷一次。
      这是"点开分类秒出数据"的关键: 拉的量从 ~34MB 降到 0.3~6MB。 */
   var catPulling = {}, catDone = {}, catToken = {};
+  // catWait: 点了分类但"分类首屏包"还没到的那小段时间。这段时间 catPulling 还是 0,
+  // 不靠它界面会说成"没有匹配的提示词", 用户就以为是分类坏了。
+  var catWait = {};
 
   /* 首屏包: data/cp_all.json 与 data/cp_<hash>.json(每个分类前 120 条)。
      一个 60~300KB 的单文件, 比"拉 4~95 个分片"快一个数量级, 用来做
@@ -823,11 +881,11 @@
   function loadPack(tab, name, kind, cat, cb) {
     var key = tab + '|' + name;
     if (!name || packLoaded[key]) { if (cb) cb(); return; }
-    packLoaded[key] = 1;
     fetch(dataUrl(name + '.json'))
-      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (rows) {
-        if (!rows || !rows.length) return;
+        if (!rows || !rows.length) throw new Error('empty pack');
+        packLoaded[key] = 1;                 // 真拿到了才标记, 失败下次还能重试
         var n = mergeRows(tab, rows, kind);
         if (!n) return;
         // 只有当前页签 + 当前分类还匹配时才重绘
@@ -844,22 +902,37 @@
   }
   function catKey(tab, cat) { return tab + '|' + cat; }
 
+  /* 一个分类最多补这么多个分片 / 这么多行就停手。
+     每个中文分类都有 1000~2400 行、撒在全部 79 个 gal 分片里, 全拉 = 27MB。
+     国内网络下一次点分类后台拉 27MB, 能把带宽占满好几分钟, 首屏包(20KB)和
+     封面图全被饿死 —— 线上实测 20KB 的分类包被拖到 16 秒才到, 用户看到的就是
+     "点了分类一直 0 条 / 不出图"。留一屏多的量(10 页), 想要更多用户会自己点
+     「加载更多」, 那条路走的是 loadOneChunk -> streamChunks, 一样能补。 */
+  var CAT_SHARD_MAX = 8;
+  var CAT_ROW_MAX = 240;
+
   function pullForCat(tab, cat) {
     var key = catKey(tab, cat);
-    if (state.done[tab] || catPulling[key] || catDone[key]) return;
+    if (state.done[tab] || catPulling[key] || catDone[key]) { delete catWait[key]; return; }
     catPulling[key] = 1;
     var myToken = catToken[tab] = (catToken[tab] || 0) + 1;
     // 已经按顺序并入的分片不用再拉(首屏包可能已经带来了它们的条目)
     var loaded = state.chunks[tab];
     var list = shards(tab).filter(function (d, idx) {
       return idx >= loaded && catShardMatch(d.f, cat);
-    });
+    }).slice(0, CAT_SHARD_MAX);
     var seen = {};
     (state[tab] || []).forEach(function (p) { seen[p.id] = 1; });
-    var i = 0, active = 0, stopped = false;
+    var i = 0, active = 0, stopped = false, got = 0, full = false;
 
+    function settle() {
+      catDone[key] = 1;
+      catPulling[key] = 0;
+      delete catWait[key];
+      if (state.tab === tab && state.cat === cat) apply();
+    }
     function next() {
-      if (stopped) return;
+      if (stopped || full) return;
       while (active < 3 && i < list.length) {
         var d = list[i++];
         active++;
@@ -867,7 +940,9 @@
           fetch(dataUrl(dd.f + '.json'))
             .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
             .then(function (rows) {
-              if (catToken[tab] !== myToken) { stopped = true; catPulling[key] = 0; return; }  // 用户又点了别的分类
+              if (catToken[tab] !== myToken) {  // 用户又点了别的分类
+                stopped = true; catPulling[key] = 0; delete catWait[key]; return;
+              }
               var add = [];
               rows.forEach(function (r) {
                 var p = (EXPAND[dd.k] || EXPAND[tab])(r);
@@ -875,6 +950,7 @@
               });
               if (add.length) {
                 Array.prototype.push.apply(state[tab], add);
+                got += add.length;
                 scheduleApply(tab);
               }
             })
@@ -882,17 +958,14 @@
             .then(function () {
               active--;
               if (stopped) return;
-              if (active === 0 && i >= list.length) {
-                catDone[key] = 1;
-                catPulling[key] = 0;
-                if (state.tab === tab && state.cat === cat) apply();
-                return;
-              }
+              if (got >= CAT_ROW_MAX) { full = true; settle(); return; }
+              if (active === 0 && i >= list.length) { settle(); return; }
               next();
             });
         })(d);
       }
     }
+    if (!list.length) { settle(); return; }
     next();
   }
 
@@ -945,8 +1018,12 @@
     state.loading[tab] = 1;
     if (!silent) busy(true, LOAD_TIP[tab] || '加载中…');
     var first = list[0];
-    fetch(dataUrl(first.f + '.json'))
+    // 首片(如 wf_image_0)自己也有一两 MB, 用户点分类时也得能让它把带宽交出来
+    var ctl = (window.AbortController) ? new AbortController() : null;
+    if (ctl) firstAbort[tab] = ctl;
+    fetch(dataUrl(first.f + '.json'), ctl ? { signal: ctl.signal } : undefined)
       .then(function (r) { return r.json(); }).then(function (rows) {
+      if (ctl) delete firstAbort[tab];
       var fresh = rows.map(EXPAND[first ? first.k : tab]);
       // 首屏包(cp_all)可能已经先到了: 不要覆盖, 只把新条目追加在后面
       var base = state[tab] || [];
@@ -964,6 +1041,14 @@
       cb();
       streamChunks(tab);   // 后台渐进拉取其余分片
     }).catch(function (e) {
+      if (ctl && ctl.signal.aborted) {
+        // 被 stopStream 掐掉(用户点了分类): 不算失败, 别弹 toast 吓人。
+        // chunks 还是 0, 之后回这个页签会重新拉首片。
+        state.loading[tab] = 0;
+        if (!silent) busy(false);
+        return;
+      }
+      if (ctl) delete firstAbort[tab];
       state.loading[tab] = 0;
       if (!silent) busy(false);
       toast('数据加载失败：请检查网络后重试');
@@ -993,6 +1078,7 @@
 
   function switchTab(tab) {
     if (state.tab === tab) return;
+    stopStream(state.tab);   // 旧页签的后台预取别跟新页签抢带宽
     state.tab = tab;
     state.cat = ''; state.page = 1; state.q = ''; state.lang = ''; state.sort = 'default';
     state.onlyRefs = false;
