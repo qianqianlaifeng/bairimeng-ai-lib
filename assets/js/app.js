@@ -66,14 +66,16 @@
   }
   document.addEventListener('error', function (e) {
     var el = e.target;
-    if (!el || (el.tagName !== 'IMG' && el.tagName !== 'VIDEO')) return;
+    // 图片的兜底交给 app.js 里的 imgFail(分级: 代理->原图->图片代理->占位),
+    // 这里只管视频, 避免两个处理器同时改 src 互相打断。
+    if (!el || el.tagName !== 'VIDEO') return;
     var src = el.getAttribute('src') || '';
     // 1) 缩图代理 -> 源图床原图
     if (SHRINK_PREFIX && src.indexOf(SHRINK_PREFIX) === 0) {
       var orig = toOrig(src);
       if (orig) {
         el.setAttribute('src', orig);
-        if (el.tagName === 'VIDEO') { try { el.load(); } catch (err) {} }
+        try { el.load(); } catch (err) {}
         return;
       }
     }
@@ -83,7 +85,7 @@
     var fb = IMG_FALLBACK.replace(/\/+$/, '');
     if (main && fb && src.indexOf(main) === 0 && src.indexOf(fb) !== 0) {
       el.setAttribute('src', fb + src.slice(main.length));
-      if (el.tagName === 'VIDEO') { try { el.load(); } catch (err) {} }
+      try { el.load(); } catch (err) {}
     }
   }, true);
   /* 预热图片代理连接: 首屏几十张图, 提前做完 DNS + TLS 握手能省一大截等待 */
@@ -125,6 +127,37 @@
     if (msg) $('#loadingText').textContent = msg;
     $('#grid').style.opacity = on ? .35 : 1;
   }
+
+  /* ---------- 封面加载失败的兜底链 ----------
+     部分图床对第三方 referer 直接 403(实测 media.openimages... 带 github.io 的 referer
+     返回 403, 去掉 referer 才 200), 所以所有封面 img 都带 referrerpolicy="no-referrer"。
+     万一某图床在当前网络仍取不到, 再退一层图片代理(服务端拉取, 不看 referer, 顺带缩到
+     600px), 最后让卡片回到"渐变 + 分类图标"的占位 —— 绝不再把整屏换成同一张兜底图。 */
+  var IMG_PROXY = 'https://wsrv.nl/?url=';
+  function proxyUrl(u) {
+    return /^https?:\/\//i.test(u) ? IMG_PROXY + encodeURIComponent(u) + '&w=600&output=webp' : '';
+  }
+  function imgFail(el) {
+    if (!el) return;
+    var stage = +(el.getAttribute('data-stage') || 0);
+    var src = el.getAttribute('src') || '';
+    /* 分级兜底, 每级只试一次:
+       1) 缩图代理地址 -> 源图床原图(直连 + no-referrer 一般能过, 也比代理快)
+       2) 图片代理(服务端拉取, 绕开本机网络对某个图床的限制)
+       3) 占位: 渐变 + 分类图标 + 常显标题 —— 绝不整屏换成同一张兜底图 */
+    if (stage === 0 && typeof toOrig === 'function') {
+      var o = toOrig(src);
+      if (o && o !== src) { el.setAttribute('data-stage', '1'); el.setAttribute('src', o); return; }
+    }
+    if (stage <= 1) {
+      var p = proxyUrl(src);
+      if (p) { el.setAttribute('data-stage', '2'); el.setAttribute('src', p); return; }
+    }
+    el.style.display = 'none';
+    var w = el.parentNode;
+    if (w && w.classList) w.classList.remove('has-img');
+  }
+  window.__imgFail = imgFail;
 
   /* ---------- 稳定色相 ---------- */
   function hue(id) {
@@ -302,12 +335,9 @@
       state.cat = b.dataset.cat;
       state.page = 1;
       apply();
-      // 分类点下去如果一条都没有、而分片还没拉全 —— 说明该分类的数据还在后面，补齐再筛
-      if (state.cat && !state.list.length && !state.done[state.tab]) {
-        var t = state.tab;
-        busy(true, '正在加载该分类…');
-        ensureAll(t).then(function () { if (state.tab === t) { busy(false); apply(); } });
-      }
+      /* 该分类的数据可能还在后面的分片里: 不再用全屏遮罩(遮住像卡死), 后台并发补齐,
+         每拉到一片 scheduleApply 就自动重绘一次, 条数持续增长。 */
+      if (state.cat && !state.done[state.tab]) streamChunks(state.tab, true);
     };
 
     $('#popularLinks').innerHTML = items.slice(0, 9).map(function (c) {
@@ -364,11 +394,13 @@
   }
   // 画廊/视频卡片只放媒体本体（对齐源站的排列）：图片与视频都按真实比例展示，
   // 不裁切；标题与分类改成悬停浮层。文本提示词没有封面图，保留原来的信息块。
-  function cardHtml(p) {
+  function cardHtml(p, idx) {
     var fb = p.fb || ('assets/img/cat-' + p.cat + '.jpg');
     var isVid = p.kind === 'video' && p.videoUrl;
     var flowVid = isVid && !p.cover;      // 没海报图: 视频本体当封面, 比例由视频自己决定
     var ar = '3 / 4';
+    // 首屏前 8 张给高优先级并立即加载, 其余懒加载 —— 不然一屏金色渐变要等好几秒才出图
+    var eager = (idx || 0) < 8;
     var inner = '';
     if (flowVid) {
       // 视频本体当封面（按视频真实比例撑高）；万一视频加载不出来就退回分类图，
@@ -379,13 +411,17 @@
         'w.classList.add(\'has-img\');w.style.backgroundImage=\'url(' + esc(fb) + ')\';' +
         'w.style.backgroundSize=\'cover\';w.style.backgroundPosition=\'center\'"></video>';
     } else if (p.cover) {
-      // 封面按真实宽高比撑开容器（加载完成覆写 --ar），所以图片是完整展示而不是裁切
-      inner = '<img class="cover" loading="lazy" src="' + esc(coverUrl(p.cover)) + '"' +
-        ' data-fb="' + esc(fb) + '"' +
+      // 封面按真实宽高比撑开容器（加载完成覆写 --ar），所以图片是完整展示而不是裁切。
+      // referrerpolicy: 有的图床(openimages)带第三方 referer 会 403, 必须去掉。
+      // 后面的 cat-icon 是兜底占位: 图彻底加载不出来时 has-img 被移除, 露出渐变+图标。
+      inner = '<img class="cover"' + (eager ? ' fetchpriority="high"' : ' loading="lazy"') +
+        ' src="' + esc(coverUrl(p.cover)) + '"' +
+        ' data-orig="' + esc(coverUrl(p.cover)) + '" referrerpolicy="no-referrer"' +
         ' onload="this.parentNode.classList.add(\'has-img\');' +
         'var r=this.naturalWidth/this.naturalHeight;' +
         'if(r>0.2&&r<5)this.parentNode.style.setProperty(\'--ar\',r.toFixed(3))"' +
-        ' onerror="this.onerror=null;this.src=this.getAttribute(\'data-fb\')" />';
+        ' onerror="window.__imgFail&&window.__imgFail(this)" />' +
+        '<span class="cat-icon">' + esc(p.catIcon || '✨') + '</span>';
       if (isVid) {
         inner += '<video class="hovervid" muted loop playsinline preload="none" referrerpolicy="no-referrer" data-src="' +
           esc(coverUrl(p.videoUrl)) + '"></video>';
@@ -417,22 +453,34 @@
 
   function render() {
     var shown = state.list.slice(0, state.page * PAGE_SIZE);
-    $('#grid').innerHTML = shown.map(cardHtml).join('');
-    $('#empty').style.display = state.list.length ? 'none' : '';
+    $('#grid').innerHTML = shown.map(function (p, i) { return cardHtml(p, i); }).join('');
+    var stillLoading = !state.done[state.tab] && !!(state.cat || state.q.trim());
+    var empty = $('#empty');
+    if (state.list.length) {
+      empty.style.display = 'none';
+    } else {
+      empty.style.display = '';
+      // 分类/搜索的数据可能还在后面的分片里 —— 说清楚"在加载", 别让用户以为分类是空的
+      empty.innerHTML = stillLoading
+        ? '<strong>正在加载该分类…</strong>数据还在后面的分片里，拉到就自动显示，稍等一下'
+        : '<strong>没有匹配的提示词</strong>换个关键词或分类试试';
+    }
     $('#loadMoreWrap').style.display = shown.length < state.list.length ? '' : 'none';
-    $('#resultCount').textContent = '（' + state.list.length + ' 条）';
+    $('#resultCount').textContent = '（' + state.list.length + ' 条' + (stillLoading ? '，加载中…' : '') + '）';
     var active = $('#categoriesScroll .chip.active');
     var label = active ? active.textContent.replace(/\d+$/, '').trim() : '全部';
     $('#listTitle').firstChild.nodeValue = state.q ? '搜索“' + state.q + '”' : label;
     $('#hint').textContent = state.onlyRefs
       ? '只看带风格参考图的图片条目（点开卡片可看参考图）'
-      : (state.tab === 'gal'
-        ? '图片提示词 · 点开卡片看完整提示词与风格参考'
-        : (state.tab === 'video'
-          ? (state.cat === 'hotvideo'
-            ? '⚠️ 当前「热门视频」是 AI 生成的静音画面（没有声音）；想听原声 → 点回「全部」或 动作 / 口播 / 音乐MV 等分类（卡片右下角有 🔊）'
-            : '✦ 开放精选视频优先展示；进画面自动静音循环，点开卡片可听原声（右下角 🔊 的是带原声的）')
-          : ''));
+      : (stillLoading && state.tab === 'gal'
+        ? '⟳ 正在补充该分类的数据，数量会继续增长…'
+        : (state.tab === 'gal'
+          ? '图片提示词 · 点开卡片看完整提示词与风格参考'
+          : (state.tab === 'video'
+            ? (state.cat === 'hotvideo'
+              ? '⚠️ 当前「热门视频」是 AI 生成的静音画面（没有声音）；想听原声 → 点回「全部」或 动作 / 口播 / 音乐MV 等分类（卡片右下角有 🔊）'
+              : '✦ 开放精选视频优先展示；进画面自动静音循环，点开卡片可听原声（右下角 🔊 的是带原声的）')
+            : '')));
     // 静音默认分类给个醒目的黄条
     if ($('#hint')) $('#hint').classList.toggle('hint-warn', state.tab === 'video' && state.cat === 'hotvideo');
     // 卡片重画了, 重新挂一次自动播放的观察器
@@ -554,8 +602,8 @@
       }
     } else if (p.cover) {
       media.innerHTML = '<img class="preview" src="' + esc(coverUrl(p.cover)) + '" ' +
-        'data-fb="' + esc(mfb) + '" ' +
-        'onerror="this.onerror=null;this.src=this.getAttribute(\'data-fb\')" />';
+        'data-orig="' + esc(coverUrl(p.cover)) + '" referrerpolicy="no-referrer" ' +
+        'onerror="window.__imgFail&&window.__imgFail(this)" />';
     } else {
       media.innerHTML = '';
     }
@@ -576,6 +624,7 @@
           var t = REF_LABEL[rf[0]] || '参考';
           return '<a class="ref-item" href="' + esc(coverUrl(refUrl)) + '" target="_blank" rel="noopener">' +
             '<img src="' + esc(coverUrl(refUrl)) + '" loading="lazy" alt="' + esc(t) + '" ' +
+            'data-orig="' + esc(coverUrl(refUrl)) + '" referrerpolicy="no-referrer" ' +
             'onerror="this.parentNode.style.display=\'none\'" />' +
             '<span>' + esc(t) + '</span></a>';
         }).join('') + '</div>'
@@ -635,18 +684,6 @@
     return out;
   }
 
-  function loadChunk(tab, k, cb) {
-    var d = shards(tab)[k];
-    if (!d) return cb(null);
-    fetch(dataUrl(d.f + '.json')).then(function (r) { return r.json(); }).then(function (rows) {
-      if (state.chunks[tab] === k) {
-        Array.prototype.push.apply(state[tab], rows.map(EXPAND[d.k]));
-        state.chunks[tab] = k + 1;
-      }
-      cb(null);
-    }).catch(function (e) { cb(e); });
-  }
-
   /* 自动后台预取的分片上限。
      首屏只需第 1 片即可渲染；再往前多备几片让"往下滚"顺滑。
      超过这个数就停下, 等用户点「加载更多」或搜索/筛选(需要全量)时再继续。
@@ -654,26 +691,74 @@
      首屏带宽全留给图片, 而不是在后台空转下载用不到的数据。 */
   var AUTO_CHUNKS = 3;
 
+  /* 并发拉片: 串行拉 95 个分片太慢(线上单分片 1~2 秒, 全量要好几分钟), 改成 4 路并发。
+     结果先放 chunkBuf, 只有轮到 state.chunks[tab] 这一片才真正并入 pool —— 保证
+     「加载更多」和首屏顺序不乱。 */
+  var PARALLEL = 4;
+  var inflight = {}, nextK = {}, chunkBuf = {}, applyTimer = {};
+
   function streamChunks(tab, force) {
-    if (state.done[tab] || state.loading[tab]) return;
-    var total = shards(tab).length;
-    if (state.chunks[tab] >= total) { finishChunks(tab); return; }
+    if (state.done[tab]) return;
+    var list = shards(tab);
+    var total = list.length;
+    if (!total) { finishChunks(tab); return; }
     // 自动流水线到上限就暂停(force=true 时不受限, 供搜索/筛选/加载更多使用)
+    var limit = force ? total : Math.min(total, AUTO_CHUNKS);
     if (!force && state.chunks[tab] >= AUTO_CHUNKS) return;
-    state.loading[tab] = 1;
-    loadChunk(tab, state.chunks[tab], function (err) {
-      state.loading[tab] = 0;
-      if (err) {
-        // 分片缺失时不要无限重试(会让"加载更多"永远转圈)：连续失败 3 次就收尾
-        state.fails[tab] = (state.fails[tab] || 0) + 1;
-        if (state.fails[tab] >= 3) { finishChunks(tab); return; }
-        setTimeout(function () { streamChunks(tab, force); }, 1200);
-        return;
+    if (nextK[tab] == null || nextK[tab] < state.chunks[tab]) nextK[tab] = state.chunks[tab];
+    inflight[tab] = inflight[tab] || 0;
+    chunkBuf[tab] = chunkBuf[tab] || {};
+
+    while (inflight[tab] < PARALLEL && nextK[tab] < limit) {
+      var k = nextK[tab]++;
+      inflight[tab]++;
+      (function (kk) {
+        fetch(dataUrl(list[kk].f + '.json'))
+          .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+          .then(function (rows) { chunkBuf[tab][kk] = rows; })
+          .catch(function () { chunkBuf[tab][kk] = null; })   // 单片失败: 跳过, 不堵后面的
+          .then(function () {
+            inflight[tab]--;
+            if (flushChunks(tab, list)) scheduleApply(tab);
+            if (state.done[tab]) return;
+            if (nextK[tab] < limit) streamChunks(tab, force);
+            else if (inflight[tab] === 0 && (limit >= total || force)) finishChunks(tab);
+          });
+      })(k);
+    }
+  }
+
+  // 按分片号顺序并入 pool, 返回是否有新增
+  function flushChunks(tab, list) {
+    var buf = chunkBuf[tab] || (chunkBuf[tab] = {});
+    var grew = false;
+    while (buf[state.chunks[tab]] !== undefined) {
+      var k = state.chunks[tab];
+      var rows = buf[k];
+      delete buf[k];
+      if (rows && rows.length) {
+        var d = list[k] || { k: tab };
+        Array.prototype.push.apply(state[tab], rows.map(EXPAND[d.k] || EXPAND[tab]));
+        grew = true;
       }
-      state.fails[tab] = 0;
-      if (state.chunks[tab] >= total) { finishChunks(tab); return; }
-      streamChunks(tab, force);
-    });
+      state.chunks[tab] = k + 1;
+    }
+    if (grew) state.fails[tab] = 0;
+    return grew;
+  }
+
+  /* 分类筛选时数据是"边拉边到"的: 每片到了要重绘一次, 否则用户一直看着 0 条。
+     节流 800ms; 只在有分类/搜索条件时刷(纯「全部」浏览交给「加载更多」按钮)。 */
+  function scheduleApply(tab) {
+    if (state.tab !== tab) return;
+    var filtered = !!(state.cat || state.q.trim());
+    // 没有筛选时只在前几片补刷一次(让「全部」的条数不再卡在首片), 之后交给「加载更多」
+    if (!filtered && state.chunks[tab] > AUTO_CHUNKS + 1) return;
+    if (applyTimer[tab]) return;
+    applyTimer[tab] = setTimeout(function () {
+      applyTimer[tab] = 0;
+      if (state.tab === tab) apply();
+    }, 1200);
   }
 
   function finishChunks(tab) {
@@ -681,6 +766,7 @@
     state.done[tab] = true;
     (state.chunkDone[tab] || []).forEach(function (fn) { try { fn(); } catch (e) {} });
     state.chunkDone[tab] = [];
+    if (state.tab === tab) scheduleApply(tab);
   }
 
   // 等待某 tab 全部分片加载完成（用于搜索前确保结果完整）
@@ -691,7 +777,8 @@
       var t = setInterval(function () {
         if (state.done[tab]) { clearInterval(t); resolve(); }
       }, 200);
-      setTimeout(function () { clearInterval(t); resolve(); }, 60000);
+      // 兜底: 网络太慢也别把界面锁死, 120 秒后先放行(后台仍在继续拉)
+      setTimeout(function () { clearInterval(t); resolve(); }, 120000);
     });
   }
 
@@ -1022,7 +1109,9 @@
       // eager 只给"首屏能看见的头几张", 其余交给浏览器按需解码
       return '<div class="hc-card" data-hid="' + esc(x.id) + '" data-hkind="' + x.kind + '" title="点开看提示词">' +
         '<img decoding="async"' + (eager ? ' fetchpriority="high"' : ' loading="lazy"') +
-        ' src="' + esc(coverUrl(x.cover)) + '" alt="" onerror="this.style.opacity=.2" />' +
+        ' src="' + esc(coverUrl(x.cover)) + '" data-orig="' + esc(coverUrl(x.cover)) + '"' +
+        ' referrerpolicy="no-referrer" alt=""' +
+        ' onerror="window.__imgFail&&window.__imgFail(this)" />' +
         '<div class="hc-meta"><b>' + esc(x.title) + '</b>' +
         '<i>' + (x.kind === 'video' ? '▶ 视频' : '🖼 图片') + '</i></div></div>';
     };
