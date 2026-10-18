@@ -338,15 +338,20 @@
       /* 先拉该分类的「首屏包」(单个小文件, 1~2 秒就有图), 再在后台按分片慢慢补全。
          全程不遮罩: 没数据时显示"正在加载该分类", 有数据就画, 条数持续增长。 */
       if (state.cat) {
-        var man = state.manifest;
-        var pk = man && man.galCatPack && man.galCatPack[state.cat];
         var t0 = state.tab, c0 = state.cat;
-        var after = function () {
-          if (state.tab === t0 && state.cat === c0) pullForCat(t0, c0);
-        };
-        // 先等首屏包(单文件), 到了再补分片 —— 否则两个请求抢带宽, 首屏反而更慢
-        if (pk) loadPack(t0, pk, 'gal', c0, after);
-        else after();
+        if (t0 === 'gal') {
+          var man = state.manifest;
+          var pk = man && man.galCatPack && man.galCatPack[c0];
+          var after = function () {
+            if (state.tab === t0 && state.cat === c0) pullForCat(t0, c0);
+          };
+          // 先等首屏包(单文件), 到了再补分片 —— 否则两个请求抢带宽, 首屏反而更慢
+          if (pk) loadPack(t0, pk, 'gal', c0, after);
+          else after();
+        } else if (!state.done[t0]) {
+          // 视频/文本等页签分片少(几个到几十个), 直接后台并发拉完, 边拉边刷
+          streamChunks(t0, true);
+        }
       }
     };
 
@@ -465,8 +470,9 @@
     var shown = state.list.slice(0, state.page * PAGE_SIZE);
     $('#grid').innerHTML = shown.map(function (p, i) { return cardHtml(p, i); }).join('');
     var ck = state.cat ? catKey(state.tab, state.cat) : '';
-    var stillLoading = (!!ck && !!catPulling[ck] && !catDone[ck]) ||
-      (!state.done[state.tab] && !!state.q.trim());
+    // 还在补数据: 搜索没拉全, 或分类没拉全(gallery 按分片补, 其他页签整页拉)
+    var stillLoading = !state.done[state.tab] &&
+      (!!state.q.trim() || (!!state.cat && (state.tab !== 'gal' || !!catPulling[ck])));
     var empty = $('#empty');
     if (state.list.length) {
       empty.style.display = 'none';
