@@ -1400,20 +1400,23 @@
     });
   }
 
+  // 后台预热所有分类首屏包: 触发 CDN 边缘缓存, 用户点分类时命中缓存零等待(消除冷启动白屏)。
+  // 复用 catPackCache, 与点击时的 loadPack 共享同一个 promise; 不在首屏前发起, 避免抢首片/cp_all 连接。
+  function warmupCatPacks(m) {
+    var cp = m.galCatPack || {};
+    Object.keys(cp).forEach(function (k) {
+      var nm = cp[k];
+      if (nm && !catPackCache[nm]) {
+        catPackCache[nm] = fetch(dataUrl(nm + '.json'))
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .catch(function () { return null; });
+      }
+    });
+  }
+
   function boot() {
     fetch(dataUrl('manifest.json')).then(function (r) { return r.json(); }).then(function (m) {
       state.manifest = m;
-      // 后台预热所有分类首屏包: 触发 CDN 边缘缓存, 用户点分类时命中缓存零等待(消除冷启动白屏)。
-      // 不阻塞渲染, 复用 catPackCache, 与用户点击时的 loadPack 共享同一个 promise。
-      var cp = m.galCatPack || {};
-      Object.keys(cp).forEach(function (k) {
-        var nm = cp[k];
-        if (nm && !catPackCache[nm]) {
-          catPackCache[nm] = fetch(dataUrl(nm + '.json'))
-            .then(function (r) { return r.ok ? r.json() : null; })
-            .catch(function () { return null; });
-        }
-      });
       var start = tabFromUrl() || 'gal';
       state.tab = start;
       $('#langGroup').style.display = (start === 'gal' || start === 'vibe' || start === 'h3') ? 'none' : '';
@@ -1430,14 +1433,16 @@
       buildCategories();
       var afterTab = function () { apply(); };
       if (start === 'gal' && m.galAllPack) {
-        // 画廊首页只靠 cp_all(单文件 ~45KB gzip): 不拉 1.3MB 的 gal_0 首片(冷启动慢, 会让首页白十几秒)。
-        // 后台预热已把各分类包触发缓存, 点分类时秒出。用户往下滚/点「加载更多」才按需拉分片。
+        // 首屏: 拉 cp_all(单文件 ~45KB gzip) 提供即时首屏, 再 loadTab 拉 gal_0 首片作「兜底数据」
+        //   —— 点分类时即使分类包还在冷启动, gal_0 里已含该分类条目, 也能秒出图(实测关键)。
+        //   gal 页签不后台预取后续大分片(避免占满 CDN 连接饿死分类包)。
         loadPack('gal', m.galAllPack, 'gal', null, function () {
-          state.chunks.gal = 1;      // 首屏就绪标记(只靠 cp_all), 不拉首片
-          apply();
+          loadTab(start, afterTab);
+          setTimeout(function () { warmupCatPacks(m); }, 1200);   // 首屏关键请求优先, 1.2s 后再预热
         });
       } else {
         loadTab(start, afterTab);    // 其他页签分片少, 仍取第 0 片 + 后台渐进拉取
+        setTimeout(function () { warmupCatPacks(m); }, 1200);
       }
     }).catch(function (e) {
       $('#grid').innerHTML = '<div class="empty"><strong>数据加载失败</strong>' +
