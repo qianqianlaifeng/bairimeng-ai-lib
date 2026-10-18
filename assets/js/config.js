@@ -23,5 +23,10 @@ window.SITE_CONFIG = {
     base: 'https://img.fakashop.ccwu.cc',
     tag: 'o',
     hosts: ['media.openimages.relakkesyang.org']
+  },
+
+  IMG_HOSTS: {
+    i: 'https://imagine-cdn.youchuan.cn',
+    q: 'https://jobs-1318297550.cos.ap-shanghai.myqcloud.com'
   }
 };
