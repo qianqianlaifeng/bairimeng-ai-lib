@@ -335,9 +335,17 @@
       state.cat = b.dataset.cat;
       state.page = 1;
       apply();
-      /* 该分类的数据可能还在后面的分片里: 不再全屏遮罩(遮住像卡死),
-         按分类只拉"可能含这个分类"的分片, 哪片先到先显示, 条数持续增长。 */
-      if (state.cat) pullForCat(state.tab, state.cat);
+      /* 先拉该分类的「首屏包」(单个小文件, 1~2 秒就有图), 再在后台按分片慢慢补全。
+         全程不遮罩: 没数据时显示"正在加载该分类", 有数据就画, 条数持续增长。 */
+      if (state.cat) {
+        var man = state.manifest;
+        var pk = man && man.galCatPack && man.galCatPack[state.cat];
+        var t0 = state.tab, c0 = state.cat;
+        if (pk) loadPack(t0, pk, 'gal', c0);
+        setTimeout(function () {
+          if (state.tab === t0 && state.cat === c0) pullForCat(t0, c0);
+        }, pk ? 1200 : 0);
+      }
     };
 
     $('#popularLinks').innerHTML = items.slice(0, 9).map(function (c) {
@@ -770,6 +778,37 @@
      这是"点开分类秒出数据"的关键: 拉的量从 ~34MB 降到 0.3~6MB。 */
   var catPulling = {}, catDone = {}, catToken = {};
 
+  /* 首屏包: data/cp_all.json 与 data/cp_<hash>.json(每个分类前 120 条)。
+     一个 60~300KB 的单文件, 比"拉 4~95 个分片"快一个数量级, 用来做
+     首页和分类页的第一屏; 完整数据仍旧由分片渐进补。 */
+  var packLoaded = {};
+  function mergeRows(tab, rows, kind) {
+    var seen = {};
+    (state[tab] || []).forEach(function (p) { seen[p.id] = 1; });
+    var add = [];
+    rows.forEach(function (r) {
+      var p = (EXPAND[kind] || EXPAND[tab])(r);
+      if (!seen[p.id]) { seen[p.id] = 1; add.push(p); }
+    });
+    if (add.length) Array.prototype.push.apply(state[tab], add);
+    return add.length;
+  }
+  function loadPack(tab, name, kind, cat) {
+    var key = tab + '|' + name;
+    if (!name || packLoaded[key]) return;
+    packLoaded[key] = 1;
+    fetch(dataUrl(name + '.json'))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (rows) {
+        if (!rows || !rows.length) return;
+        var n = mergeRows(tab, rows, kind);
+        if (!n) return;
+        // 只有当前页签 + 当前分类还匹配时才重绘
+        if (state.tab === tab && (cat == null || state.cat === cat)) apply();
+      })
+      .catch(function () {});
+  }
+
   function catShardMatch(fname, cat) {
     if (/^oi-/.test(cat)) return /^oi_gal_/.test(fname);
     if (/^wf-/.test(cat)) return /^wf_image_/.test(fname);
@@ -782,14 +821,18 @@
     if (state.done[tab] || catPulling[key] || catDone[key]) return;
     catPulling[key] = 1;
     var myToken = catToken[tab] = (catToken[tab] || 0) + 1;
-    var list = shards(tab).filter(function (d) { return catShardMatch(d.f, cat); });
+    // 已经按顺序并入的分片不用再拉(首屏包可能已经带来了它们的条目)
+    var loaded = state.chunks[tab];
+    var list = shards(tab).filter(function (d, idx) {
+      return idx >= loaded && catShardMatch(d.f, cat);
+    });
     var seen = {};
     (state[tab] || []).forEach(function (p) { seen[p.id] = 1; });
     var i = 0, active = 0, stopped = false;
 
     function next() {
       if (stopped) return;
-      while (active < 6 && i < list.length) {
+      while (active < 3 && i < list.length) {
         var d = list[i++];
         active++;
         (function (dd) {
@@ -876,7 +919,17 @@
     var first = list[0];
     fetch(dataUrl(first.f + '.json'))
       .then(function (r) { return r.json(); }).then(function (rows) {
-      state[tab] = rows.map(EXPAND[first ? first.k : tab]);
+      var fresh = rows.map(EXPAND[first ? first.k : tab]);
+      // 首屏包(cp_all)可能已经先到了: 不要覆盖, 只把新条目追加在后面
+      var base = state[tab] || [];
+      if (base.length) {
+        var seen = {};
+        base.forEach(function (p) { seen[p.id] = 1; });
+        fresh = fresh.filter(function (p) { return !seen[p.id]; });
+        state[tab] = base.concat(fresh);
+      } else {
+        state[tab] = fresh;
+      }
       state.chunks[tab] = 1;
       state.loading[tab] = 0;
       if (!silent) busy(false);
@@ -926,6 +979,9 @@
       b.classList.toggle('active', b.dataset.tab === tab);
     });
     syncUrl(tab);
+    if (tab === 'gal' && state.manifest && state.manifest.galAllPack) {
+      loadPack('gal', state.manifest.galAllPack, 'gal');
+    }
     loadTab(tab, function () {
       buildCategories();
       // 视频页默认「全部」: 开放精选(oi)视频排在最前; 旧的热门静音视频在分类里按需筛
@@ -1234,6 +1290,8 @@
       setAutoplay(autoplayOn);
       stats();                       // 计数全部来自 manifest，瞬间渲染
       renderHero();                  // 黑金轮播（开放精选）
+      // 首屏包: 一个单文件 120 条, 比等 4 个分片(1.2MB)快得多
+      if (start === 'gal' && m.galAllPack) loadPack('gal', m.galAllPack, 'gal');
       loadTab(start, function () {   // 仅取第 0 片，其余后台渐进拉取
         buildCategories();
         apply();
