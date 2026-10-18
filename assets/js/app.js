@@ -364,9 +364,11 @@
         if (t0 === 'gal') {
           var man = state.manifest;
           var pk = man && man.galCatPack && man.galCatPack[c0];
+          pauseWarmup();   // 用户点了分类: 立刻掐掉后台预热, 把 6 个 CDN 连接让给"被点的分类包"
           var after = function () {
             if (state.tab === t0 && state.cat === c0) pullForCat(t0, c0);
             else delete catWait[catKey(t0, c0)];
+            resumeWarmupSoon(6000);   // 补分片先跑, 6s 后再续后台预热(不与补分片抢连接)
           };
           // 先等首屏包(单文件), 到了再补分片 —— 否则两个请求抢带宽, 首屏反而更慢
           if (pk) loadPack(t0, pk, 'gal', c0, after);
@@ -1401,21 +1403,45 @@
   }
 
   // 后台预热分类首屏包: 触发 CDN 边缘缓存, 用户点分类时命中缓存零等待。
-  // 关键: 并发限制为 3, 始终给交互(点击分类的请求)留 3 个连接 —— 否则 37 个包 + gal_0 首片(22s/117s)
-  //   会占满 6 连接, 把用户正点的小分类包(17KB)饿死在队尾 → 表现为"点分类 0 条"(与最初病根同源)。
+  // 关键1 并发限量 2 —— 37 个包各 5~22s(冷), 一次拉太猛立刻占满 6 连接,
+  //   用户正点的小分类包(17KB)被饿死在队尾 → "点分类 0 条"(本文件反复出现的病根)。
+  // 关键2 全程可被"点分类"瞬间掐断(pauseWarmup) —— 用户一点分类就 abort 掉在飞的预热,
+  //   把 6 个连接让给"被点的分类包 + 补分片", 冷启动也能尽快拿到首屏; 拉完再 resume 续预热。
+  // 关键3 只有成功拿到 rows 才写 catPackCache(resolved promise); 被掐/失败/空包一律不写,
+  //   让点击方自己去拉 —— 绝不遗留一个永远 null 的 promise 把该分类卡死在 0 条。
+  var warmCtl = null, warmResumeT = null, warmGen = 0;
+  function pauseWarmup() {
+    if (warmCtl) { try { warmCtl.abort(); } catch (e) {} warmCtl = null; }
+    if (warmResumeT) { clearTimeout(warmResumeT); warmResumeT = null; }
+  }
+  function resumeWarmupSoon(ms) {
+    if (warmResumeT) clearTimeout(warmResumeT);
+    warmResumeT = setTimeout(function () { warmResumeT = null; if (state.manifest) warmupCatPacks(state.manifest); }, ms || 5000);
+  }
   function warmupCatPacks(m) {
-    var cp = m.galCatPack || {};
+    var cp = (m && m.galCatPack) || {};
     var keys = Object.keys(cp).filter(function (k) { return cp[k] && !catPackCache[cp[k]]; });
-    var i = 0, active = 0, MAX = 3;
+    if (!keys.length) return;
+    pauseWarmup();
+    var i = 0, active = 0, MAX = 2, gen = ++warmGen;
+    var ctl = (window.AbortController) ? new AbortController() : null;
+    warmCtl = ctl;
+    var sig = ctl ? ctl.signal : undefined;
     function next() {
+      if (gen !== warmGen) return;   // 已被更新的预热/暂停顶替: 停手
       while (active < MAX && i < keys.length) {
         var nm = cp[keys[i++]];
         active++;
         (function (nm2) {
-          catPackCache[nm2] = fetch(dataUrl(nm2 + '.json'))
+          fetch(dataUrl(nm2 + '.json'), sig ? { signal: sig } : undefined)
             .then(function (r) { return r.ok ? r.json() : null; })
-            .catch(function () { return null; })
-            .then(function () { active--; next(); });
+            .catch(function (e) { if (e && e.name === 'AbortError') return undefined; return null; })
+            .then(function (rows) {
+              // AbortError -> undefined: 不写缓存, 让点击方自己拉
+              if (Array.isArray(rows) && rows.length && !catPackCache[nm2]) catPackCache[nm2] = Promise.resolve(rows);
+              active--;
+              if (gen === warmGen) next();
+            });
         })(nm);
       }
     }
