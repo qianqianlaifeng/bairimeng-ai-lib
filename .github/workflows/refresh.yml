@@ -88,6 +88,12 @@ jobs:
         run: |
           python tools/fetch_h3.py
           python tools/build_h3.py
+      - name: 重建分类首屏包
+        # 灵感画廊的数据切成 600 条/片, 点一个分类要把 95 个分片全拉一遍才知道
+        # 哪些条目属于它。这里按分类各切一个 120 条的首屏包(cp_*.json), 前端点
+        # 分类先拉这个单文件, 1~2 秒就有图, 剩下的再按分片渐进补。
+        run: |
+          python tools/build_catpack.py data
       - name: 同步 data 版本号(缓存击穿)
         # GitHub Pages 是 max-age=600: 数据刷新后旧 manifest 会在 CDN 残留最多
         # 10 分钟, 期间用户可能拿到缺 wf 数据的旧版。这里把 manifest 的内容哈希
