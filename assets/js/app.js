@@ -867,6 +867,8 @@
      一个 60~300KB 的单文件, 比"拉 4~95 个分片"快一个数量级, 用来做
      首页和分类页的第一屏; 完整数据仍旧由分片渐进补。 */
   var packLoaded = {};
+  // 分类首屏包的内存缓存: boot 后后台预热, 点分类时命中缓存零等待(消除 CDN 冷启动白屏)
+  var catPackCache = {};
   function mergeRows(tab, rows, kind) {
     var seen = {};
     (state[tab] || []).forEach(function (p) { seen[p.id] = 1; });
@@ -881,18 +883,21 @@
   function loadPack(tab, name, kind, cat, cb) {
     var key = tab + '|' + name;
     if (!name || packLoaded[key]) { if (cb) cb(); return; }
-    fetch(dataUrl(name + '.json'))
-      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function (rows) {
-        if (!rows || !rows.length) throw new Error('empty pack');
-        packLoaded[key] = 1;                 // 真拿到了才标记, 失败下次还能重试
-        var n = mergeRows(tab, rows, kind);
-        if (!n) return;
-        // 只有当前页签 + 当前分类还匹配时才重绘
-        if (state.tab === tab && (cat == null || state.cat === cat)) apply();
-      })
-      .catch(function () {})
-      .then(function () { if (cb) cb(); });
+    // 复用预热缓存: 若 boot 已在后台拉过这个包(或正在拉), 直接共享同一个 promise, 不重复请求
+    var pr = catPackCache[name];
+    if (!pr) {
+      pr = fetch(dataUrl(name + '.json'))
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .catch(function () { return null; });   // 失败返回 null, 下面清标记, 下次可重试
+      catPackCache[name] = pr;
+    }
+    pr.then(function (rows) {
+      if (!rows || !rows.length) { packLoaded[key] = 0; return; }   // 真拿到才继续, 失败留待重试
+      var n = mergeRows(tab, rows, kind);
+      if (!n) return;
+      // 只有当前页签 + 当前分类还匹配时才重绘
+      if (state.tab === tab && (cat == null || state.cat === cat)) apply();
+    }).then(function () { if (cb) cb(); });
   }
 
   function catShardMatch(fname, cat) {
@@ -1398,6 +1403,17 @@
   function boot() {
     fetch(dataUrl('manifest.json')).then(function (r) { return r.json(); }).then(function (m) {
       state.manifest = m;
+      // 后台预热所有分类首屏包: 触发 CDN 边缘缓存, 用户点分类时命中缓存零等待(消除冷启动白屏)。
+      // 不阻塞渲染, 复用 catPackCache, 与用户点击时的 loadPack 共享同一个 promise。
+      var cp = m.galCatPack || {};
+      Object.keys(cp).forEach(function (k) {
+        var nm = cp[k];
+        if (nm && !catPackCache[nm]) {
+          catPackCache[nm] = fetch(dataUrl(nm + '.json'))
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .catch(function () { return null; });
+        }
+      });
       var start = tabFromUrl() || 'gal';
       state.tab = start;
       $('#langGroup').style.display = (start === 'gal' || start === 'vibe' || start === 'h3') ? 'none' : '';
