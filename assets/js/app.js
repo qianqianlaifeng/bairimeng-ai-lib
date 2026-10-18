@@ -1400,18 +1400,26 @@
     });
   }
 
-  // 后台预热所有分类首屏包: 触发 CDN 边缘缓存, 用户点分类时命中缓存零等待(消除冷启动白屏)。
-  // 复用 catPackCache, 与点击时的 loadPack 共享同一个 promise; 不在首屏前发起, 避免抢首片/cp_all 连接。
+  // 后台预热分类首屏包: 触发 CDN 边缘缓存, 用户点分类时命中缓存零等待。
+  // 关键: 并发限制为 3, 始终给交互(点击分类的请求)留 3 个连接 —— 否则 37 个包 + gal_0 首片(22s/117s)
+  //   会占满 6 连接, 把用户正点的小分类包(17KB)饿死在队尾 → 表现为"点分类 0 条"(与最初病根同源)。
   function warmupCatPacks(m) {
     var cp = m.galCatPack || {};
-    Object.keys(cp).forEach(function (k) {
-      var nm = cp[k];
-      if (nm && !catPackCache[nm]) {
-        catPackCache[nm] = fetch(dataUrl(nm + '.json'))
-          .then(function (r) { return r.ok ? r.json() : null; })
-          .catch(function () { return null; });
+    var keys = Object.keys(cp).filter(function (k) { return cp[k] && !catPackCache[cp[k]]; });
+    var i = 0, active = 0, MAX = 3;
+    function next() {
+      while (active < MAX && i < keys.length) {
+        var nm = cp[keys[i++]];
+        active++;
+        (function (nm2) {
+          catPackCache[nm2] = fetch(dataUrl(nm2 + '.json'))
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .catch(function () { return null; })
+            .then(function () { active--; next(); });
+        })(nm);
       }
-    });
+    }
+    next();
   }
 
   function boot() {
@@ -1433,12 +1441,11 @@
       buildCategories();
       var afterTab = function () { apply(); };
       if (start === 'gal' && m.galAllPack) {
-        // 首屏: 拉 cp_all(单文件 ~45KB gzip) 提供即时首屏, 再 loadTab 拉 gal_0 首片作「兜底数据」
-        //   —— 点分类时即使分类包还在冷启动, gal_0 里已含该分类条目, 也能秒出图(实测关键)。
-        //   gal 页签不后台预取后续大分片(避免占满 CDN 连接饿死分类包)。
+        // 首屏: 拉 cp_all(即时首屏) + gal_0 首片(兜底数据, 点分类时即使分类包未到也有图)。
+        // gal_0 仅占 1 个 CDN 连接(不会饿死分类包); gal 页签不再后台预取后续大分片。
         loadPack('gal', m.galAllPack, 'gal', null, function () {
-          loadTab(start, afterTab);
-          setTimeout(function () { warmupCatPacks(m); }, 1200);   // 首屏关键请求优先, 1.2s 后再预热
+          loadTab(start, afterTab);   // 拉 gal_0 首片作兜底
+          setTimeout(function () { warmupCatPacks(m); }, 1200);   // 首屏后再预热(并发3, 不抢交互)
         });
       } else {
         loadTab(start, afterTab);    // 其他页签分片少, 仍取第 0 片 + 后台渐进拉取
