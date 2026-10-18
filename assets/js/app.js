@@ -335,9 +335,9 @@
       state.cat = b.dataset.cat;
       state.page = 1;
       apply();
-      /* 该分类的数据可能还在后面的分片里: 不再用全屏遮罩(遮住像卡死), 后台并发补齐,
-         每拉到一片 scheduleApply 就自动重绘一次, 条数持续增长。 */
-      if (state.cat && !state.done[state.tab]) streamChunks(state.tab, true);
+      /* 该分类的数据可能还在后面的分片里: 不再全屏遮罩(遮住像卡死),
+         按分类只拉"可能含这个分类"的分片, 哪片先到先显示, 条数持续增长。 */
+      if (state.cat) pullForCat(state.tab, state.cat);
     };
 
     $('#popularLinks').innerHTML = items.slice(0, 9).map(function (c) {
@@ -454,7 +454,9 @@
   function render() {
     var shown = state.list.slice(0, state.page * PAGE_SIZE);
     $('#grid').innerHTML = shown.map(function (p, i) { return cardHtml(p, i); }).join('');
-    var stillLoading = !state.done[state.tab] && !!(state.cat || state.q.trim());
+    var ck = state.cat ? catKey(state.tab, state.cat) : '';
+    var stillLoading = (!!ck && !!catPulling[ck] && !catDone[ck]) ||
+      (!state.done[state.tab] && !!state.q.trim());
     var empty = $('#empty');
     if (state.list.length) {
       empty.style.display = 'none';
@@ -759,6 +761,68 @@
       applyTimer[tab] = 0;
       if (state.tab === tab) apply();
     }, 1200);
+  }
+
+  /* ---------- 分类专用拉取 ----------
+     一个分类的条目只会落在同类分片里(中文分类在 gal_*, oi-* 在 oi_gal_*,
+     wf-* 在 wf_image_*), 所以点分类时没必要把 95 个分片全拉一遍 —— 只拉
+     相关的那一组, 6 路并发, 哪片先到先并入(筛选时顺序无所谓), 每片完成刷一次。
+     这是"点开分类秒出数据"的关键: 拉的量从 ~34MB 降到 0.3~6MB。 */
+  var catPulling = {}, catDone = {}, catToken = {};
+
+  function catShardMatch(fname, cat) {
+    if (/^oi-/.test(cat)) return /^oi_gal_/.test(fname);
+    if (/^wf-/.test(cat)) return /^wf_image_/.test(fname);
+    return /^gal_/.test(fname);
+  }
+  function catKey(tab, cat) { return tab + '|' + cat; }
+
+  function pullForCat(tab, cat) {
+    var key = catKey(tab, cat);
+    if (state.done[tab] || catPulling[key] || catDone[key]) return;
+    catPulling[key] = 1;
+    var myToken = catToken[tab] = (catToken[tab] || 0) + 1;
+    var list = shards(tab).filter(function (d) { return catShardMatch(d.f, cat); });
+    var seen = {};
+    (state[tab] || []).forEach(function (p) { seen[p.id] = 1; });
+    var i = 0, active = 0, stopped = false;
+
+    function next() {
+      if (stopped) return;
+      while (active < 6 && i < list.length) {
+        var d = list[i++];
+        active++;
+        (function (dd) {
+          fetch(dataUrl(dd.f + '.json'))
+            .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(function (rows) {
+              if (catToken[tab] !== myToken) { stopped = true; catPulling[key] = 0; return; }  // 用户又点了别的分类
+              var add = [];
+              rows.forEach(function (r) {
+                var p = (EXPAND[dd.k] || EXPAND[tab])(r);
+                if (!seen[p.id]) { seen[p.id] = 1; add.push(p); }
+              });
+              if (add.length) {
+                Array.prototype.push.apply(state[tab], add);
+                scheduleApply(tab);
+              }
+            })
+            .catch(function () {})
+            .then(function () {
+              active--;
+              if (stopped) return;
+              if (active === 0 && i >= list.length) {
+                catDone[key] = 1;
+                catPulling[key] = 0;
+                if (state.tab === tab && state.cat === cat) apply();
+                return;
+              }
+              next();
+            });
+        })(d);
+      }
+    }
+    next();
   }
 
   function finishChunks(tab) {
