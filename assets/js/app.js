@@ -1426,12 +1426,18 @@
       setAutoplay(autoplayOn);
       stats();                       // 计数全部来自 manifest，瞬间渲染
       renderHero();                  // 黑金轮播（开放精选）
-      var afterTab = function () { buildCategories(); apply(); };
-      // 首屏包: 一个单文件 120 条(约 95KB), 比等 4 个分片(1.2MB)快得多
+      // 分类栏只依赖 manifest, manifest 一到立刻渲染 —— 不再等 cp_all/首片, 消除首屏白屏(用户以为页面坏了)
+      buildCategories();
+      var afterTab = function () { apply(); };
       if (start === 'gal' && m.galAllPack) {
-        loadPack('gal', m.galAllPack, 'gal', null, function () { loadTab(start, afterTab); });
+        // 画廊首页只靠 cp_all(单文件 ~45KB gzip): 不拉 1.3MB 的 gal_0 首片(冷启动慢, 会让首页白十几秒)。
+        // 后台预热已把各分类包触发缓存, 点分类时秒出。用户往下滚/点「加载更多」才按需拉分片。
+        loadPack('gal', m.galAllPack, 'gal', null, function () {
+          state.chunks.gal = 1;      // 首屏就绪标记(只靠 cp_all), 不拉首片
+          apply();
+        });
       } else {
-        loadTab(start, afterTab);    // 仅取第 0 片，其余后台渐进拉取
+        loadTab(start, afterTab);    // 其他页签分片少, 仍取第 0 片 + 后台渐进拉取
       }
     }).catch(function (e) {
       $('#grid').innerHTML = '<div class="empty"><strong>数据加载失败</strong>' +
