@@ -1039,7 +1039,11 @@
       state.loading[tab] = 0;
       if (!silent) busy(false);
       cb();
-      streamChunks(tab);   // 后台渐进拉取其余分片
+      // 仅画廊(gal)页签首屏不预取大分片: 首页只靠 cp_all, 把 6 个 CDN 连接全留给
+      //  用户点分类时的小包(实测: 预取会占满管道, 分类包被排队 2.5s+ → 用户看到"0 条"以为坏了)。
+      //  用户往下滚/点「加载更多」时才按需拉分片(此时没分类竞争, 带宽闲着)。
+      //  其他页签(video/vibe/text/h3)分片少且无"分类包"竞争, 仍照常后台预取。
+      if (tab !== 'gal') streamChunks(tab);   // 后台渐进拉取其余分片
     }).catch(function (e) {
       if (ctl && ctl.signal.aborted) {
         // 被 stopStream 掐掉(用户点了分类): 不算失败, 别弹 toast 吓人。
