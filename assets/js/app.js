@@ -33,6 +33,14 @@
   var SHRINK_HOSTS = (IMG_SHRINK && IMG_SHRINK.hosts) || [];
   var SHRINK_BASE = (IMG_SHRINK && IMG_SHRINK.base) || '';
   var SHRINK_TAG = (IMG_SHRINK && IMG_SHRINK.tag) || 'o';
+  var IMG_HOSTS = (window.SITE_CONFIG && window.SITE_CONFIG.IMG_HOSTS) || {};
+  /* 画廊数据里的封面是 /m/<代号>/<路径> —— 用不到图床域名, 体积更小。
+     但要能显示, 就得在这里把代号换回主机, 并补上各家图床的缩图参数
+     (不补参数会拿到几 MB 的原图, 首屏 24 张直接卡死)。 */
+  var IMG_HOST_QUERY = {
+    i: '?x-oss-process=image/resize,w_600/format,webp/quality,q_80',
+    q: '?imageMogr2/thumbnail/600x/format/webp/quality/80'
+  };
   /* 视频/流媒体绝不走缩图代理: Worker 对 .mp4 等会原样流式转发, 但大文件在国内
      中间设备会 ECONNRESET(实测视频代理 0/3 成功), 且源站直连视频反而 206 正常(最快 379ms)。
      所以视频必须保持直连, 只给图片(静态图床原图)做代理缩图。 */
@@ -51,6 +59,17 @@
     if (/^https?:\/\//.test(u)) {
       var s = shrinkUrl(u);
       return s || u;
+    }
+    // /m/<代号>/<路径> -> 图床完整地址 + 该图床的缩图参数
+    var m = /^\/m\/([a-z])\/(.+)$/.exec(u);
+    if (m) {
+      var host = IMG_HOSTS[m[1]];
+      if (host) {
+        var path = m[2];
+        var q = IMG_HOST_QUERY[m[1]] || '';
+        if (path.indexOf('?') !== -1) q = '';   // 路径自带参数就不再补
+        return host.replace(/\/+$/, '') + '/' + path + q;
+      }
     }
     return IMG_BASE ? IMG_BASE.replace(/\/+$/, '') + u : u;
   }
