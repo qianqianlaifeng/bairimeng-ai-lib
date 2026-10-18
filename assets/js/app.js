@@ -341,10 +341,12 @@
         var man = state.manifest;
         var pk = man && man.galCatPack && man.galCatPack[state.cat];
         var t0 = state.tab, c0 = state.cat;
-        if (pk) loadPack(t0, pk, 'gal', c0);
-        setTimeout(function () {
+        var after = function () {
           if (state.tab === t0 && state.cat === c0) pullForCat(t0, c0);
-        }, pk ? 1200 : 0);
+        };
+        // 先等首屏包(单文件), 到了再补分片 —— 否则两个请求抢带宽, 首屏反而更慢
+        if (pk) loadPack(t0, pk, 'gal', c0, after);
+        else after();
       }
     };
 
@@ -793,9 +795,9 @@
     if (add.length) Array.prototype.push.apply(state[tab], add);
     return add.length;
   }
-  function loadPack(tab, name, kind, cat) {
+  function loadPack(tab, name, kind, cat, cb) {
     var key = tab + '|' + name;
-    if (!name || packLoaded[key]) return;
+    if (!name || packLoaded[key]) { if (cb) cb(); return; }
     packLoaded[key] = 1;
     fetch(dataUrl(name + '.json'))
       .then(function (r) { return r.ok ? r.json() : null; })
@@ -806,7 +808,8 @@
         // 只有当前页签 + 当前分类还匹配时才重绘
         if (state.tab === tab && (cat == null || state.cat === cat)) apply();
       })
-      .catch(function () {});
+      .catch(function () {})
+      .then(function () { if (cb) cb(); });
   }
 
   function catShardMatch(fname, cat) {
@@ -979,14 +982,16 @@
       b.classList.toggle('active', b.dataset.tab === tab);
     });
     syncUrl(tab);
-    if (tab === 'gal' && state.manifest && state.manifest.galAllPack) {
-      loadPack('gal', state.manifest.galAllPack, 'gal');
-    }
-    loadTab(tab, function () {
+    var afterTab = function () {
       buildCategories();
       // 视频页默认「全部」: 开放精选(oi)视频排在最前; 旧的热门静音视频在分类里按需筛
       apply();
-    });
+    };
+    if (tab === 'gal' && state.manifest && state.manifest.galAllPack) {
+      loadPack('gal', state.manifest.galAllPack, 'gal', null, function () { loadTab(tab, afterTab); });
+    } else {
+      loadTab(tab, afterTab);
+    }
   }
 
   /* ---------- 视频自动播放 ----------
@@ -1290,12 +1295,13 @@
       setAutoplay(autoplayOn);
       stats();                       // 计数全部来自 manifest，瞬间渲染
       renderHero();                  // 黑金轮播（开放精选）
-      // 首屏包: 一个单文件 120 条, 比等 4 个分片(1.2MB)快得多
-      if (start === 'gal' && m.galAllPack) loadPack('gal', m.galAllPack, 'gal');
-      loadTab(start, function () {   // 仅取第 0 片，其余后台渐进拉取
-        buildCategories();
-        apply();
-      });
+      var afterTab = function () { buildCategories(); apply(); };
+      // 首屏包: 一个单文件 120 条(约 95KB), 比等 4 个分片(1.2MB)快得多
+      if (start === 'gal' && m.galAllPack) {
+        loadPack('gal', m.galAllPack, 'gal', null, function () { loadTab(start, afterTab); });
+      } else {
+        loadTab(start, afterTab);    // 仅取第 0 片，其余后台渐进拉取
+      }
     }).catch(function (e) {
       $('#grid').innerHTML = '<div class="empty"><strong>数据加载失败</strong>' +
         '请刷新页面重试。</div>';
