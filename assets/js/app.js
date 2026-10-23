@@ -737,6 +737,8 @@
     for (i = 0; i < no; i++) out.push({ f: 'oi_' + tab + '_' + i, k: tab });
     var n = m.chunks[tab] || ((wfKey || no) ? 0 : 1);
     for (i = 0; i < n; i++) out.push({ f: tab + '_' + i, k: tab });
+    var nk = (tab === 'gal' ? m.chunks['kook_image'] : 0) || 0;
+    for (i = 0; i < nk; i++) out.push({ f: 'kook_image_' + i, k: tab });
     return out;
   }
 
@@ -905,6 +907,7 @@
   function catShardMatch(fname, cat) {
     if (/^oi-/.test(cat)) return /^oi_gal_/.test(fname);
     if (/^wf-/.test(cat)) return /^wf_image_/.test(fname);
+    if (/^kook-/.test(cat)) return /^kook_image_/.test(fname);
     return /^gal_/.test(fname);
   }
   function catKey(tab, cat) { return tab + '|' + cat; }
