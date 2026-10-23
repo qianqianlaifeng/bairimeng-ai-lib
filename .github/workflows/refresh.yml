@@ -68,10 +68,12 @@ jobs:
           GAL_OUTDIR: ${{ github.workspace }}/data
           GAL_RAW_DIR: ${{ github.workspace }}/.cache
           # 每晚抓取量上限(实测 1.6s/页 + 详情 2.5s/条, 太大会跑超时)
-          WF_IMG_CAP: '400'
+          # 2026-10-23: 图库全量 4497 条已按模型分类接入, 上限调到 6000 覆盖全量
+          # (否则每晚把接入量打回 400), 详情 prompt 抓 600 条 ≈ 25 分钟。
+          WF_IMG_CAP: '6000'
           WF_VID_CAP: '250'
           WF_VIBE_CAP: '150'
-          WF_PROMPT_CAP: '80'
+          WF_PROMPT_CAP: '600'
           WF_PAGE: '30'
         run: |
           python tools/fetch_wf.py
