@@ -5,7 +5,8 @@
 
 - 数据源接口根地址见 WF_API(环境变量/同目录 secrets.json), 代码不写死域名。
 - 三类 = media_type:image | media_type:video | tag:"vibe coding"。
-- 分页: cursor(响应 data.next_cursor)。列表不含 prompt, 只含 title/description/cover/media/tags...
+- 分类: **图片按「生成模型」分(wf-m-*, 2026-10-22 起)**, 视频按主题(wfv-*), vibe 单页签。
+- 分页: cursor(响应 data.next_cursor)。列表不含 prompt, 只含 title/description/cover/media/model/tags...
 - prompt: 按需再打详情接口 /api/prompts/{slug} 取(有 WF_PROMPT_CAP 上限, 控制构建耗时)。
 - 隐私: 只保留媒体地址与展示字段, 剥掉 source_name/source_url/接口域名; 媒体主机不进仓库
          (图片由前端 coverUrl 走缩图代理, 视频走 /r/v 302 代理, 见 config.js / worker)。
@@ -48,12 +49,15 @@ def cfg_api():
 
 API = cfg_api()
 PAGE = int(os.environ.get("WF_PAGE") or "60")
-# 每类最多抓多少条(列表+详情), 本地构建可调小
-IMG_CAP = int(os.environ.get("WF_IMG_CAP") or "600")
+# 每类最多抓多少条(列表+详情), 本地构建可调小。
+# 2026-10-22: 图片源已 4497 条, 上限调到 6000 保证全量接入(改为按模型分类后不再只取前 600)。
+IMG_CAP = int(os.environ.get("WF_IMG_CAP") or "6000")
 VID_CAP = int(os.environ.get("WF_VID_CAP") or "400")
 VIBE_CAP = int(os.environ.get("WF_VIBE_CAP") or "200")
-# 每类对前 N 条抓详情取完整 prompt, 其余用 description 兜底
-PROMPT_CAP = int(os.environ.get("WF_PROMPT_CAP") or "10000")
+# 每类对前 N 条抓详情取完整 prompt, 其余用 description 兜底。
+# 详情接口有严格限流(429), 串行约 1.2~2.5s/条; 默认 1500 条 ≈ 30~60 分钟,
+# 再大手动跑会失控(nightly 由 workflow 的 WF_PROMPT_CAP 另行覆盖)。
+PROMPT_CAP = int(os.environ.get("WF_PROMPT_CAP") or "1500")
 
 _CTX = ssl.create_default_context()
 _CTX.check_hostname = False
@@ -109,17 +113,34 @@ def clean_refs(_):
     return []
 
 
-# 画廊 category(英文) -> 中文页签标签
-CAT_ZH = {
-    "character": "角色插画", "portrait": "人像写真", "poster": "海报设计",
-    "product": "产品静物", "interior": "空间建筑", "story": "场景故事",
-    "infographic": "信息界面", "logo": "品牌标志", "sticker": "图标贴纸",
-    "video-ad": "广告视觉", "": "综合精选",
-}
+# 画廊来源的 model 字段 -> 站点分类键/中文标签。
+# 2026-10-22 起画廊图片改按「生成模型」分类(用户要求), 不再按主题(character/portrait...)。
+# 模型名清洗: 统一大小写变体/脏数据; 中文模型名 slug 化会空, 用 md5 短码兜底(标签仍显示中文原名)。
+import hashlib
+import re as _re
+
+
+def model_key(m):
+    m = (m or "").strip()
+    low = m.lower()
+    # 已知脏数据/变体归一。注意: 归一后必须重算 low, 否则 slug 仍按旧名生成,
+    # 会产出 wf-m-image-2-5 这种 1 条幽灵分类(2026-10-22 实测踩坑)。
+    if low in ("image 2.5", "gpt-image-2.5", "gpt image2.5"):
+        m = "GPT Image 2.5"
+        low = m.lower()
+    elif low in ("gpt-image-2", "gpt image2"):
+        m = "GPT Image 2"
+        low = m.lower()
+    if not m:
+        return "wf-m-other", "其它模型"
+    slug = _re.sub(r"[^a-z0-9]+", "-", low).strip("-")
+    if not slug:                      # 纯中文模型名
+        slug = hashlib.md5(m.encode("utf-8")).hexdigest()[:8]
+    return "wf-m-" + slug, m
 
 
 def img_row(item, prompt):
-    cat = "wf-" + (item.get("category") or "")
+    cat, _label = model_key(item.get("model"))
     return [
         "wf-" + item["slug"],
         zh(item),
@@ -223,20 +244,25 @@ def main():
     print("[wf] 分片: wf_image=%d wf_video=%d wf_vibe=%d" % (n_img, n_vid, n_vib))
 
     # meta: 分类中文标签 + 聚合分类 + hero 原料
+    # 图片按「生成模型」分类(2026-10-22 起, 用户要求); 视频仍按主题(wfv-*); vibe 单页签
     cats = {}
-    for it in img_items + vid_items:
-        k = it.get("category") or ""
-        cats["wf-" + k] = [CAT_ZH.get(k, "综合精选"), "🎨"]
+    for it in img_items:
+        k, label = model_key(it.get("model"))
+        cats[k] = [label, "🎨"]
+    for it in vid_items:
+        k = "wfv-" + (it.get("category") or "")
+        cats[k] = ["灵感视频", "🎬"]
     cats["wf-vibe"] = ["Vibe Coding", "⚡"]
     hero = []
     for it in (vibe_items + vid_items + img_items):
+        _k, _label = model_key(it.get("model")) if it.get("media_type") == "image" else ("", "灵感画廊")
         hero.append({
             "id": "wf-" + it["slug"],
             "kind": "image" if it.get("media_type") == "image" else "image",
             "cover": it.get("cover_url") or "",
             "title": zh(it),
             "desc": zhdesc(it),
-            "cat": (CAT_ZH.get(it.get("category") or "", "灵感画廊")),
+            "cat": _label or "灵感画廊",
         })
         if len(hero) >= 18:
             break
