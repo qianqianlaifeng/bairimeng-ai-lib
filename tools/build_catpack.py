@@ -30,9 +30,9 @@ ALL_LIMIT = 120      # 「全部」首屏包条数
 
 
 def load_shards():
-    """按 app.js 里 shards('gal') 的顺序读: wf_image -> oi_gal -> gal。"""
+    """按 app.js 里 shards('gal') 的顺序读: wf_image -> oi_gal -> gal -> kook_image。"""
     out = []
-    for prefix in ("wf_image", "oi_gal", "gal"):
+    for prefix in ("wf_image", "oi_gal", "gal", "kook_image"):
         i = 0
         while True:
             fp = os.path.join(DATA, "%s_%d.json" % (prefix, i))

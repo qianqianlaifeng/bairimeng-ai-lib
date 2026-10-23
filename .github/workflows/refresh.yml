@@ -96,6 +96,13 @@ jobs:
         # 分类先拉这个单文件, 1~2 秒就有图, 剩下的再按分片渐进补。
         run: |
           python tools/build_catpack.py data
+      - name: 合并 kook 分类键(一次性快照, 必须在 build_catpack 之后)
+        # kookaigc 是一次性快照(525 张自托管图), 没有抓取脚本; refresh.py 会整体
+        # 重置 galCats/catCounts.gal, build_catpack 会整体覆盖 galCatPack —— 本步把
+        # kook 的三个模型分类键(标签/计数/首屏包索引)加回 manifest, 顺带重算
+        # totalCats(refresh.py 用纯 gal 的 galCats 算, 会少算 wf+kook 共 9 个)。
+        run: |
+          python tools/build_kook.py
       - name: 同步 data 版本号(缓存击穿)
         # GitHub Pages 是 max-age=600: 数据刷新后旧 manifest 会在 CDN 残留最多
         # 10 分钟, 期间用户可能拿到缺 wf 数据的旧版。这里把 manifest 的内容哈希

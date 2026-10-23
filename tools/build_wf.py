@@ -84,13 +84,13 @@ def main():
     m["vibeCats"] = {"wf-vibe": VIBE_LABEL}
     m.setdefault("catCounts", {})["vibe"] = {"wf-vibe": len(vib)}
 
-    # ---- 计数(幂等: 先扣上一轮 wf 数) ----
+    # ---- 计数折入 ----
+    # nightly 链路语义(2026-10-23 修正, 同 build_oi.py): refresh.py 已重置 galCount,
+    # build_hotvideo 已重建 videoCount —— 直接加本轮量, 不扣上一轮。
     n_i, n_v, n_b = len(gal), len(vid), len(vib)
-    pi = m.get("wfImage") or 0
-    pv = m.get("wfVideo") or 0
-    m["galCount"] = max(0, (m.get("galCount") or 0) - pi) + n_i
-    m["videoCount"] = max(0, (m.get("videoCount") or 0) - pv) + n_v
-    m["videoPlayable"] = max(0, (m.get("videoPlayable") or 0) - pv) + n_v
+    m["galCount"] = (m.get("galCount") or 0) + n_i
+    m["videoCount"] = (m.get("videoCount") or 0) + n_v
+    m["videoPlayable"] = (m.get("videoPlayable") or 0) + n_v
     m["vibeCount"] = n_b
     m["wfImage"] = n_i
     m["wfVideo"] = n_v

@@ -72,13 +72,13 @@ def main():
     m["videoCats"] = videoCats
 
     # ---- 计数折入 ----
+    # nightly 链路语义(2026-10-23 修正): refresh.py 已把 galCount 重置为纯 gal 量,
+    # build_hotvideo 已重建 videoCount —— 这里直接加本轮量。旧版「先扣上一轮」
+    # 会把刚重置的基数误当成本源旧量吞掉(源的量不变时增量全丢)。
     n_gal, n_vid = len(gal), len(vid)
-    # 先扣掉上一轮的 oi 数(幂等), 再加本轮
-    prev_g = m.get("oiGalCount") or 0
-    prev_v = m.get("oiVideoCount") or 0
-    m["galCount"] = max(0, (m.get("galCount") or 0) - prev_g) + n_gal
-    m["videoCount"] = max(0, (m.get("videoCount") or 0) - prev_v) + n_vid
-    m["videoPlayable"] = max(0, (m.get("videoPlayable") or 0) - prev_v) + n_vid
+    m["galCount"] = (m.get("galCount") or 0) + n_gal
+    m["videoCount"] = (m.get("videoCount") or 0) + n_vid
+    m["videoPlayable"] = (m.get("videoPlayable") or 0) + n_vid
     m["oiGalCount"] = n_gal
     m["oiVideoCount"] = n_vid
 
