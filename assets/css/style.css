@@ -345,6 +345,20 @@ input { font-family: inherit; }
 .card-excerpt.full-prompt::before {
   content: "提示词 · "; color: var(--accent-dark); font-weight: 700;
 }
+/* 完整提示词中位 280 字、最长近 4000 字：全文都进页面（不截断），
+   默认只露出 5 行，点「展开全文」就地铺开，瀑布流不会被一张卡片撑到几屏高。 */
+.card-excerpt.full-prompt.can-fold {
+  display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden;
+}
+.card-excerpt.full-prompt.can-fold.open {
+  display: block; -webkit-line-clamp: unset; overflow: visible;
+}
+.fold-btn {
+  align-self: flex-start; margin: 0; padding: 2px 0; border: 0; background: none;
+  color: var(--accent-dark); font-size: 12px; font-weight: 600; cursor: pointer;
+  border-bottom: 1px dashed currentColor; line-height: 1.5;
+}
+.fold-btn:hover { color: var(--accent); }
 .card-foot {
   margin-top: auto; display: flex; align-items: center; gap: 8px;
   padding-top: 9px; border-top: 1px solid #f2f4f8; font-size: 12px; color: var(--text-2);

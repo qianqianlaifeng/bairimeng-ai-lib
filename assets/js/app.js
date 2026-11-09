@@ -520,14 +520,15 @@
        最新收录的三类（Gpt Image / 瑶光 / 如梦似幻）不截断，提示词整段显示。 */
     var full = isNewCat(p.cat);
     var promptText = String(p.body || p.desc || p.title || '').replace(/\s+/g, ' ').trim();
-    /* 最新收录三类的 title 与提示词是同一句话，别在卡片上重复写两遍：
-       这时标题行让位，提示词整段作为主体显示。 */
-    var sameAsTitle = String(p.title || '').trim() === promptText;
-    var titleHtml = (full && sameAsTitle) ? ''
-      : '<h3 class="card-title">' + esc(p.title || p.catLabel) + '</h3>';
+    /* 最新收录三类的 title 就是提示词开头，卡片上不再重复写标题；
+       提示词原文整段进 DOM（不是截断），长文先折叠 5 行，点「展开全文」就地看全文。 */
+    var titleHtml = full ? '' : '<h3 class="card-title">' + esc(p.title || p.catLabel) + '</h3>';
+    var needFold = full && promptText.length > 110;
     var body = '<div class="card-body">' + titleHtml +
-      '<div class="card-excerpt' + (full ? ' full-prompt' : '') + '">' +
+      '<div class="card-excerpt' + (full ? ' full-prompt' : '') + (needFold ? ' can-fold' : '') + '">' +
         esc(full ? promptText : excerpt(promptText, 150)) + '</div>' +
+      (needFold ? '<button class="fold-btn" type="button" data-chars="' + p.chars + '">展开全文 · ' +
+        fmtNum(p.chars) + ' 字</button>' : '') +
       '<div class="card-foot"><span class="cat-tag">' + esc(p.catLabel) + '</span>' +
         (p.kind === 'video' ? '<span>▶ 视频</span>' : '') +
         '<span class="chars">' + (p.time ? esc(p.time.slice(5)) + ' · ' : '') +
@@ -1251,6 +1252,18 @@
   function bind() {
     var grid = $('#grid');
     grid.addEventListener('click', function (e) {
+      // 「展开全文」就地展开/收起，别把点击冒泡成开弹窗
+      var fb = e.target.closest('.fold-btn');
+      if (fb) {
+        var card = fb.closest('.prompt-card');
+        var ex = card && card.querySelector('.card-excerpt');
+        if (ex) {
+          var opened = ex.classList.toggle('open');
+          fb.textContent = opened ? '收起' : ('展开全文 · ' + fmtNum(+fb.dataset.chars) + ' 字');
+        }
+        e.preventDefault();
+        return;
+      }
       var c = e.target.closest('.prompt-card');
       if (c) openModal(c.dataset.id);
     });
