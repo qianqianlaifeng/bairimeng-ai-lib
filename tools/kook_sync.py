@@ -59,17 +59,33 @@ _lock = threading.Lock()
 AUTH_DEAD = False        # 登录态失效(401/403)时置位, 用于收尾报警
 
 
+sys.path.insert(0, HERE)
+import kook_auth  # noqa: E402
+
+
 def read_cookie():
-    c = (os.environ.get("KOOK_COOKIE") or "").strip()
-    if c:
-        return c
-    p = os.path.join(os.environ.get("TEMP") or "/tmp", "bm-login-cookie.txt")
-    if os.path.exists(p):
-        return open(p, encoding="utf-8").read().strip()
-    return ""
+    """取一个尽量新鲜的 Cookie；快过期/已过期会自动用账号密码登录换新的。"""
+    return kook_auth.ensure_cookie(quiet=False)
 
 
 COOKIE = read_cookie()
+_renew_lock = threading.Lock()
+_RENEWED = False
+
+
+def renew_cookie():
+    """撞到 401 时自动重登一次（并发下只允许一个线程去登录）。"""
+    global COOKIE, _RENEWED
+    with _renew_lock:
+        if _RENEWED:
+            return bool(COOKIE)
+        _RENEWED = True
+        new = kook_auth.login(quiet=False)
+        if new:
+            COOKIE = new
+            print("[auth] 已自动换新 token，继续拉全文")
+            return True
+        return False
 
 
 def http(url, headers=None, tries=3, timeout=25):
@@ -124,23 +140,26 @@ def fetch_list():
 
 
 def fetch_full(iid):
-    """登录态接口取完整提示词；拿不到返回 None。"""
+    """登录态接口取完整提示词；拿不到返回 None。401 会自动重登重试一次。"""
     global AUTH_DEAD
     if not COOKIE:
         AUTH_DEAD = True
         return None
-    st, body, _ = http(BASE + "/site-user/api/images/%s/full-prompt" % iid,
-                       {"Accept": "application/json"})
-    if st in (401, 403):
-        AUTH_DEAD = True
+    for attempt in (0, 1):
+        st, body, _ = http(BASE + "/site-user/api/images/%s/full-prompt" % iid,
+                           {"Accept": "application/json"})
+        if st == 200:
+            try:
+                p = (json.loads(body.decode("utf-8", "ignore")) or {}).get("prompt") or ""
+            except Exception:
+                return None
+            return p.strip() or None
+        if st in (401, 403):
+            AUTH_DEAD = True
+            if attempt == 0 and renew_cookie():
+                continue
         return None
-    if st != 200:
-        return None
-    try:
-        p = (json.loads(body.decode("utf-8", "ignore")) or {}).get("prompt") or ""
-    except Exception:
-        return None
-    return p.strip() or None
+    return None
 
 
 def fetch_cover(iid, url, dry=False):
@@ -241,8 +260,8 @@ def main():
             got_full += 1
 
     if AUTH_DEAD:
-        print("::warning::KOOK_COOKIE 已失效（401），本次只写入了预览文本；"
-              "重新跑一次「一键登录.bat」后把新 Cookie 更新到仓库 Secret KOOK_COOKIE 即可。")
+        print("::warning::登录态异常，本次部分条目只写入了预览文本；"
+              "已尝试自动重登，若仍失败请检查 Secret KOOK_USER / KOOK_PASS 是否正确。")
     allrows = list(old.values()) + rows_new
     print("[kook] 写入 %d 行（新增 %d，全文到手 %d，仍只有预览 %d）"
           % (len(allrows), len(rows_new), got_full, no_full))

@@ -91,13 +91,18 @@ jobs:
           python tools/fetch_h3.py
           python tools/build_h3.py
       - name: 同步最新收录三类作品(新作品 + 完整提示词)
-        # 这三类的全文要走登录态接口, Cookie 存在仓库 Secret(KOOK_COOKIE), 7 天过期,
-        # 失效时脚本只报警不写数据。必须排在 build_catpack / build_kook / update_hero 之前。
+        # 这三类的全文要走登录态接口, Cookie 存在仓库 Secret(KOOK_COOKIE)。
+        # kook_auth 会自己判断过期并用 KOOK_USER/KOOK_PASS 重新登录，无需人工续期。
         continue-on-error: true
         env:
           KOOK_COOKIE: ${{ secrets.KOOK_COOKIE }}
+          KOOK_USER: ${{ secrets.KOOK_USER }}
+          KOOK_PASS: ${{ secrets.KOOK_PASS }}
+          GH_PAT: ${{ secrets.GH_PAT }}
           GAL_OUTDIR: ${{ github.workspace }}/data
-        run: python tools/kook_sync.py
+        run: |
+          pip install --quiet pynacl
+          python tools/kook_sync.py
       - name: 重建分类首屏包
         # 灵感画廊的数据切成 600 条/片, 点一个分类要把 95 个分片全拉一遍才知道
         # 哪些条目属于它。这里按分类各切一个 120 条的首屏包(cp_*.json), 前端点
