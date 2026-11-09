@@ -12,7 +12,7 @@
 
   var PAGE_SIZE = 24;
   var state = {
-    tab: 'gal', cat: '', q: '', lang: '', sort: 'default', page: 1, openId: '',
+    tab: 'gal', cat: '', q: '', lang: '', sort: 'newest', page: 1, openId: '',
     onlyRefs: false,
     text: [], image: [], video: [], gal: [], list: [], manifest: null, loading: {},
     fails: { text: 0, image: 0, video: 0, gal: 0 },
@@ -274,9 +274,27 @@
       catLabel: c[0], catIcon: c[1], desc: r[4], cover: r[5],
       author: '', lang: 'zh', type: 'IMAGE', dev: false,
       chars: r[2].length, isJson: false, license: '', url: '',
-      source: 'gal', fb: 'assets/img/cat-others.jpg', refs: r[6] || []
+      source: 'gal', fb: 'assets/img/cat-others.jpg', refs: r[6] || [],
+      /* KOOK 三个最新分类在快照里补了第 8 字段: 发布时间 YYYY-MM-DD */
+      time: r[7] || ''
     };
   }
+  /* 「最新在前」用的稳定新鲜度：按收录批次分层，批次内按真实发布时间倒序。
+     没有时间的老数据保持原本顺序，不会因为分片是异步到达就乱跳。 */
+  function freshness(p) {
+    if (p._fresh != null) return p._fresh;
+    var id = String(p.id || ''), cat = String(p.cat || ''), base;
+    if (id.indexOf('kook-') === 0 || cat.indexOf('kook-') === 0) base = 4e12;       // 最新收录
+    else if (id.indexOf('wf-') === 0 || cat.indexOf('wf-') === 0) base = 3e12;      // 外部图库
+    else if (id.indexOf('oi-') === 0 || cat.indexOf('oi-') === 0) base = 2e12;      // 开放精选
+    else base = 1e12;                                                                 // 原有基础库
+    var ts = 0;
+    if (p.time) { var d = Date.parse(p.time); if (!isNaN(d)) ts = d / 1000; }
+    p._fresh = base + ts;
+    return p._fresh;
+  }
+  /* 最新收录的三个分类（KOOK 灵绘库） */
+  function isNewCat(key) { return /^kook-/.test(String(key || '')); }
   // Vibe Coding 行(14 字段): 尾缀 r[13]=media_type('image'/'video')决定渲染成图片卡还是视频卡
   function expandVibe(r) {
     var m = state.manifest;
@@ -337,12 +355,23 @@
     keys.forEach(function (k) { total += (cnt[k] || 0); });
     var items = keys.map(function (k) {
       return { key: k, label: src[k][0], icon: src[k][1], n: cnt[k] || 0 };
-    }).sort(function (a, b) { return b.n - a.n; });
+    }).sort(function (a, b) {
+      // 最新收录的三个分类固定置顶，其余仍按条数从多到少
+      var an = isNewCat(a.key) ? 1 : 0, bn = isNewCat(b.key) ? 1 : 0;
+      if (an !== bn) return bn - an;
+      return b.n - a.n;
+    });
 
     var html = '<button class="chip active" data-cat="">全部<span class="cnt">' + fmtNum(total) + '</span></button>';
+    var newLabelDone = false;
     items.forEach(function (c) {
-      html += '<button class="chip" data-cat="' + esc(c.key) + '">' + c.icon + ' ' + esc(c.label) +
-        '<span class="cnt">' + fmtNum(c.n) + '</span></button>';
+      var isNew = isNewCat(c.key);
+      if (isNew && !newLabelDone) {
+        html += '<span class="chip-group-label">🆕 最新收录</span>';
+        newLabelDone = true;
+      }
+      html += '<button class="chip' + (isNew ? ' is-new' : '') + '" data-cat="' + esc(c.key) + '">' +
+        c.icon + ' ' + esc(c.label) + '<span class="cnt">' + fmtNum(c.n) + '</span></button>';
     });
     var box = $('#categoriesScroll');
     box.innerHTML = html;
@@ -377,7 +406,7 @@
           // 视频/文本等页签分片少(几个到几十个), 直接后台并发拉完, 边拉边刷
           streamChunks(t0, true);
         }
-      } else if (!state.done[t0] && state.chunks[t0] < AUTO_CHUNKS) {
+      } else if (!state.done[t0] && state.chunks[t0] < autoLimit(t0)) {
         // 回到「全部」: 后台预取可能被之前的分类点击掐过, 这里续上(只补到上限)
         streamChunks(t0);
       }
@@ -420,7 +449,8 @@
         (p.desc || '') + ' ' + (p.model || ''))
         .toLowerCase().indexOf(q) !== -1;
     });
-    if (state.sort === 'long') list.sort(function (a, b) { return b.chars - a.chars; });
+    if (state.sort === 'newest') list.sort(function (a, b) { return freshness(b) - freshness(a); });
+    else if (state.sort === 'long') list.sort(function (a, b) { return b.chars - a.chars; });
     else if (state.sort === 'short') list.sort(function (a, b) { return a.chars - b.chars; });
     state.list = list;
     render();
@@ -460,9 +490,7 @@
       inner = '<img class="cover"' + (eager ? ' fetchpriority="high"' : ' loading="lazy"') +
         ' src="' + esc(coverUrl(p.cover)) + '"' +
         ' data-orig="' + esc(coverUrl(p.cover)) + '" referrerpolicy="no-referrer"' +
-        ' onload="this.parentNode.classList.add(\'has-img\');' +
-        'var r=this.naturalWidth/this.naturalHeight;' +
-        'if(r>0.2&&r<5)this.parentNode.style.setProperty(\'--ar\',r.toFixed(3))"' +
+        ' onload="this.parentNode.classList.add(\'has-img\')"' +
         ' onerror="window.__imgFail&&window.__imgFail(this)" />' +
         '<span class="cat-icon">' + esc(p.catIcon || '✨') + '</span>';
       if (isVid) {
@@ -482,15 +510,23 @@
         '<i class="tile-cat">' + esc(p.catLabel) + '</i></span>') +
       '</div>';
 
-    var body = '';
-    if (p.kind === 'text') {
-      body = '<div class="card-body">' +
-        '<h3 class="card-title">' + esc(p.title) + '</h3>' +
-        '<div class="card-excerpt">' + esc(excerpt(p.desc || p.body, 200)) + '</div>' +
-        '<div class="card-foot"><span>' + esc(p.catLabel) + '</span>' +
-        '<span class="chars">' + fmtNum(p.chars) + ' 字</span></div>' +
-      '</div>';
-    }
+    /* 卡片下方常显文字：标题 + 提示词 + 分类。
+       最新收录的三类（Gpt Image / 瑶光 / 如梦似幻）不截断，提示词整段显示。 */
+    var full = isNewCat(p.cat);
+    var promptText = String(p.body || p.desc || p.title || '').replace(/\s+/g, ' ').trim();
+    /* 最新收录三类的 title 与提示词是同一句话，别在卡片上重复写两遍：
+       这时标题行让位，提示词整段作为主体显示。 */
+    var sameAsTitle = String(p.title || '').trim() === promptText;
+    var titleHtml = (full && sameAsTitle) ? ''
+      : '<h3 class="card-title">' + esc(p.title || p.catLabel) + '</h3>';
+    var body = '<div class="card-body">' + titleHtml +
+      '<div class="card-excerpt' + (full ? ' full-prompt' : '') + '">' +
+        esc(full ? promptText : excerpt(promptText, 150)) + '</div>' +
+      '<div class="card-foot"><span class="cat-tag">' + esc(p.catLabel) + '</span>' +
+        (p.kind === 'video' ? '<span>▶ 视频</span>' : '') +
+        '<span class="chars">' + (p.time ? esc(p.time.slice(5)) + ' · ' : '') +
+        fmtNum(p.chars) + ' 字</span></div>' +
+    '</div>';
     return '<div class="prompt-card" data-id="' + esc(p.id) + '">' + cover + body + '</div>';
   }
 
@@ -697,8 +733,11 @@
         : '🔊 这条<b>带原声</b>，点开即出声；若没声音，点右下角「🔊 声音已开」按钮或视频自带的喇叭即可。') +
         '</div>'
       : '';
-    // 来源与授权信息不再对外展示
-    $('#mSrc').innerHTML = '';
+    // 来源与授权信息不再对外展示；最新收录三类额外说明「源站只公开预览」
+    $('#mSrc').innerHTML = isNewCat(p.cat)
+      ? '<span class="kook-tip">这批作品在源站只公开提示词预览，上方已是本站能取到的全部内容，' +
+        '没有再做截断。完整提示词需在 <a href="https://kookaigc.top/" target="_blank" rel="noopener">源站</a> 登录后查看。</span>'
+      : '';
     $('#copyHint').textContent = '';
     $('#modalMask').classList.add('open');
     document.body.style.overflow = 'hidden';
@@ -726,6 +765,10 @@
      「开放精选」(oi_*) 排在最前 => 优先展示；后面跟原有分片。 */
   function shards(tab) {
     var m = state.manifest, out = [], i;
+    /* 最新收录（KOOK 三个分类）排在最前：首片就是最新的一批，
+       默认「最新在前」排序一进站就能看到，不必等用户翻到最后几片。 */
+    var nk = (tab === 'gal' ? m.chunks['kook_image'] : 0) || 0;
+    for (i = 0; i < nk; i++) out.push({ f: 'kook_image_' + i, k: tab });
     // 外部图库(wf): 图片折进图库 / 视频折进视频页 / Vibe Coding 独立页签
     // 开源 MiniMax H3(h3): 独立页签, 行是 14 字段混合视频卡/图卡
     var wfKey = tab === 'vibe' ? 'wf_vibe' : (tab === 'gal' ? 'wf_image' : (tab === 'video' ? 'wf_video' : (tab === 'h3' ? 'h3_video' : '')));
@@ -737,8 +780,6 @@
     for (i = 0; i < no; i++) out.push({ f: 'oi_' + tab + '_' + i, k: tab });
     var n = m.chunks[tab] || ((wfKey || no) ? 0 : 1);
     for (i = 0; i < n; i++) out.push({ f: tab + '_' + i, k: tab });
-    var nk = (tab === 'gal' ? m.chunks['kook_image'] : 0) || 0;
-    for (i = 0; i < nk; i++) out.push({ f: 'kook_image_' + i, k: tab });
     return out;
   }
 
@@ -748,6 +789,11 @@
      好处: 不再一进站就把该页签全部分片拉完(oi_gal 15 片 + gal 79 片 ≈ 33MB),
      首屏带宽全留给图片, 而不是在后台空转下载用不到的数据。 */
   var AUTO_CHUNKS = 3;
+  /* 灵感画廊的前 6 片都是「最新收录」小分片(kook_image_0..5, 合计约 140KB),
+     一次性预取完，默认「最新在前」的列表就有 500+ 条可翻；否则首屏只有
+     100 条，翻到第 10 页就会被逼去 force 拉全量 34MB，卡住用户。
+     其它页签仍维持 3 片。 */
+  function autoLimit(tab) { return tab === 'gal' ? 6 : AUTO_CHUNKS; }
 
   /* 并发拉片: 串行拉 95 个分片太慢(线上单分片 1~2 秒, 全量要好几分钟), 改成 4 路并发。
      结果先放 chunkBuf, 只有轮到 state.chunks[tab] 这一片才真正并入 pool —— 保证
@@ -785,8 +831,8 @@
     var total = list.length;
     if (!total) { finishChunks(tab); return; }
     // 自动流水线到上限就暂停(force=true 时不受限, 供搜索/筛选/加载更多使用)
-    var limit = force ? total : Math.min(total, AUTO_CHUNKS);
-    if (!force && state.chunks[tab] >= AUTO_CHUNKS) return;
+    var limit = force ? total : Math.min(total, autoLimit(tab));
+    if (!force && state.chunks[tab] >= autoLimit(tab)) return;
     if (nextK[tab] == null || nextK[tab] < state.chunks[tab]) nextK[tab] = state.chunks[tab];
     inflight[tab] = inflight[tab] || 0;
     chunkBuf[tab] = chunkBuf[tab] || {};
@@ -849,7 +895,7 @@
     if (state.tab !== tab) return;
     var filtered = !!(state.cat || state.q.trim());
     // 没有筛选时只在前几片补刷一次(让「全部」的条数不再卡在首片), 之后交给「加载更多」
-    if (!filtered && state.chunks[tab] > AUTO_CHUNKS + 1) return;
+    if (!filtered && state.chunks[tab] > autoLimit(tab) + 1) return;
     if (applyTimer[tab]) return;
     applyTimer[tab] = setTimeout(function () {
       applyTimer[tab] = 0;
@@ -1049,11 +1095,10 @@
       state.loading[tab] = 0;
       if (!silent) busy(false);
       cb();
-      // 仅画廊(gal)页签首屏不预取大分片: 首页只靠 cp_all, 把 6 个 CDN 连接全留给
-      //  用户点分类时的小包(实测: 预取会占满管道, 分类包被排队 2.5s+ → 用户看到"0 条"以为坏了)。
-      //  用户往下滚/点「加载更多」时才按需拉分片(此时没分类竞争, 带宽闲着)。
-      //  其他页签(video/vibe/text/h3)分片少且无"分类包"竞争, 仍照常后台预取。
-      if (tab !== 'gal') streamChunks(tab);   // 后台渐进拉取其余分片
+      /* 画廊首屏也预取，但 autoLimit('gal')=6 只覆盖前面的小体积「最新收录」
+         分片(合计 ~140KB)，不会碰到后面 444KB 起的大分片；用户一点分类，
+         stopStream/pauseWarmup 会立刻掐断，分类首屏包不会被饿死。 */
+      streamChunks(tab);   // 后台渐进拉取其余分片
     }).catch(function (e) {
       if (ctl && ctl.signal.aborted) {
         // 被 stopStream 掐掉(用户点了分类): 不算失败, 别弹 toast 吓人。
@@ -1094,7 +1139,7 @@
     if (state.tab === tab) return;
     stopStream(state.tab);   // 旧页签的后台预取别跟新页签抢带宽
     state.tab = tab;
-    state.cat = ''; state.page = 1; state.q = ''; state.lang = ''; state.sort = 'default';
+    state.cat = ''; state.page = 1; state.q = ''; state.lang = ''; state.sort = 'newest';
     state.onlyRefs = false;
     if ($('#refGroup')) $('#refGroup').querySelector('button').classList.remove('active');
     $('#searchInput').value = '';
@@ -1315,7 +1360,7 @@
 
     $('#logoLink').addEventListener('click', function (e) {
       e.preventDefault();
-      state.cat = ''; state.q = ''; state.lang = ''; state.page = 1; state.sort = 'default';
+      state.cat = ''; state.q = ''; state.lang = ''; state.page = 1; state.sort = 'newest';
       state.onlyRefs = false;
       if ($('#refGroup')) $('#refGroup').querySelector('button').classList.remove('active');
       $('#searchInput').value = '';
