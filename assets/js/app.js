@@ -42,7 +42,7 @@
     q: '?imageMogr2/thumbnail/600x/format/webp/quality/80'
   };
   /* 视频/流媒体绝不走缩图代理: Worker 对 .mp4 等会原样流式转发, 但大文件在国内
-     中间设备会 ECONNRESET(实测视频代理 0/3 成功), 且源站直连视频反而 206 正常(最快 379ms)。
+     中间设备会 ECONNRESET(实测视频代理 0/3 成功), 而直连视频反而 206 正常(最快 379ms)。
      所以视频必须保持直连, 只给图片(静态图床原图)做代理缩图。 */
   var NO_SHRINK_EXT = /\.(mp4|webm|ogg|mov|m4v|m3u8|ts)(\?|$|#)/i;
   function shrinkUrl(u) {
@@ -356,10 +356,14 @@
     var items = keys.map(function (k) {
       return { key: k, label: src[k][0], icon: src[k][1], n: cnt[k] || 0 };
     }).sort(function (a, b) {
-      // 最新收录的三个分类固定置顶，其余仍按条数从多到少
-      var an = isNewCat(a.key) ? 1 : 0, bn = isNewCat(b.key) ? 1 : 0;
-      if (an !== bn) return bn - an;
-      return b.n - a.n;
+      // 「综合精选」固定排第一个分类；其后是最新收录的三个分类；其余按条数降序。
+      function rank(c) {
+        if (c.key === '综合精选' || c.label === '综合精选') return 0;
+        if (isNewCat(c.key)) return 1;
+        return 2;
+      }
+      var d = rank(a) - rank(b);
+      return d || (b.n - a.n);
     });
 
     var html = '<button class="chip active" data-cat="">全部<span class="cnt">' + fmtNum(total) + '</span></button>';
@@ -465,7 +469,7 @@
     if (p.dev) b += '<span class="badge dev">DEV</span>';
     return b;
   }
-  // 画廊/视频卡片只放媒体本体（对齐源站的排列）：图片与视频都按真实比例展示，
+  // 画廊/视频卡片：图片与视频都按真实比例完整展示，
   // 不裁切；标题与分类改成悬停浮层。文本提示词没有封面图，保留原来的信息块。
   function cardHtml(p, idx) {
     var fb = p.fb || ('assets/img/cat-' + p.cat + '.jpg');
@@ -490,7 +494,9 @@
       inner = '<img class="cover"' + (eager ? ' fetchpriority="high"' : ' loading="lazy"') +
         ' src="' + esc(coverUrl(p.cover)) + '"' +
         ' data-orig="' + esc(coverUrl(p.cover)) + '" referrerpolicy="no-referrer"' +
-        ' onload="this.parentNode.classList.add(\'has-img\')"' +
+        ' onload="this.parentNode.classList.add(\'has-img\');' +
+        'var r=this.naturalWidth/this.naturalHeight;' +
+        'if(r>0.1&&r<10)this.style.aspectRatio=r.toFixed(4)"' +
         ' onerror="window.__imgFail&&window.__imgFail(this)" />' +
         '<span class="cat-icon">' + esc(p.catIcon || '✨') + '</span>';
       if (isVid) {
@@ -733,11 +739,8 @@
         : '🔊 这条<b>带原声</b>，点开即出声；若没声音，点右下角「🔊 声音已开」按钮或视频自带的喇叭即可。') +
         '</div>'
       : '';
-    // 来源与授权信息不再对外展示；最新收录三类额外说明「源站只公开预览」
-    $('#mSrc').innerHTML = isNewCat(p.cat)
-      ? '<span class="kook-tip">这批作品在源站只公开提示词预览，上方已是本站能取到的全部内容，' +
-        '没有再做截断。完整提示词需在 <a href="https://kookaigc.top/" target="_blank" rel="noopener">源站</a> 登录后查看。</span>'
-      : '';
+    // 站内不展示任何来源信息，也不出现任何登录/解锁提示
+    $('#mSrc').innerHTML = '';
     $('#copyHint').textContent = '';
     $('#modalMask').classList.add('open');
     document.body.style.overflow = 'hidden';
@@ -1393,12 +1396,13 @@
     $('#heroVideoPlay').textContent = fmtNum(m.videoPlayable || 0);
   }
 
-  /* ---------- 黑金轮播（开放精选 · 自动滑动） ---------- */
+  /* ---------- 黑金轮播（最新收录 · 自动滑动） ---------- */
   function renderHero() {
     var box = $('#heroCarousel');
     if (!box) return;
     var h = (state.manifest && state.manifest.oiHero) || [];
     if (!h.length) { box.style.display = 'none'; return; }
+    state.heroRows = h;
     var card = function (x, eager) {
       // 轮播封面同样要过 coverUrl(): 否则会用源图床原图(单张最大 1.2MB), 首屏等十几秒
       // eager 只给"首屏能看见的头几张", 其余交给浏览器按需解码
@@ -1424,12 +1428,26 @@
       l.rel = 'preload'; l.as = 'image'; l.href = u;
       head.appendChild(l);
     });
-    box.innerHTML = '<div class="hc-head"><span class="hc-t">✦ 开放精选 · 每日上新</span>' +
+    box.innerHTML = '<div class="hc-head"><span class="hc-t">✦ 最新收录 · 每日上新</span>' +
       '<span class="hc-tip">自动滑动 · 悬停暂停 · 点击看提示词</span></div>' +
       '<div class="hc-viewport"><div class="hc-track">' + row + '</div></div>';
     box.onclick = function (e) {
       var c = e.target.closest('.hc-card');
       if (c) openHero(c.dataset.hid, c.dataset.hkind);
+    };
+  }
+  /* 轮播条目自带字段就够开弹窗：最新收录的图片可能还在后面的分片里，
+     不必为了点一张图去等整库加载完。 */
+  function heroToItem(x) {
+    var body = x.body || x.desc || x.title || '';
+    var cm = (state.manifest && state.manifest.galCats) || {};
+    return {
+      id: x.id, kind: x.kind || 'image', title: x.title || '', body: body,
+      cat: x.cat || '', catLabel: (cm[x.cat] && cm[x.cat][0]) || '最新收录',
+      catIcon: (cm[x.cat] && cm[x.cat][1]) || '✨',
+      desc: x.desc || '', cover: x.cover || '', refs: [], time: x.time || '',
+      author: '', lang: 'zh', type: 'IMAGE', dev: false, chars: body.length,
+      isJson: false, license: '', url: '', source: 'gal', fb: 'assets/img/cat-others.jpg'
     };
   }
   function openHero(id, kind) {
@@ -1443,6 +1461,8 @@
     }
     var it = find();
     if (it) { openModal(it); return; }
+    var hx = (state.heroRows || []).filter(function (x) { return x.id === id; })[0];
+    if (hx) { openModal(heroToItem(hx)); return; }
     // 轮播条目理论上在最前分片里; 万一还没加载(不在起始页), 把几个池都拉齐再找
     Promise.all(pools.map(function (t) { return ensureAll(t); })).then(function () {
       var it2 = find();

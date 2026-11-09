@@ -22,7 +22,7 @@ ROOT = os.path.dirname(HERE)
 DATA = os.environ.get("GAL_OUTDIR") or os.path.join(ROOT, "data")
 MANI = os.path.join(DATA, "manifest.json")
 
-SOURCE_LABEL = ["KOOK灵绘库", ""]        # 对外只显示中性名, 不暴露来源
+SOURCE_LABEL = ["灵感画廊", ""]          # 对外只显示中性名, 不暴露来源
 CAT_LABELS = {                           # 三个模型分类的中文标签(一次性快照, 不会变)
     "kook-yaoguang": ["瑶光", "🎨"],
     "kook-rumengsihuan": ["如梦似幻", "🎨"],
@@ -54,7 +54,7 @@ def main():
         gcnt[r[3]] = gcnt.get(r[3], 0) + 1
     galCats = dict(m.get("galCats") or {})
     for k, n in gcnt.items():
-        galCats[k] = CAT_LABELS.get(k, ["KOOK灵绘库", "🎨"])
+        galCats[k] = CAT_LABELS.get(k, ["灵感画廊", "🎨"])
         m.setdefault("catCounts", {}).setdefault("gal", {})[k] = n
     m["galCats"] = galCats
 
