@@ -1,0 +1,57 @@
+name: 实时同步最新收录
+
+# 这三类（Gpt Image / 瑶光 / 如梦似幻）的作品更新比较快，每天一次太慢，
+# 这里每 30 分钟扫一次源站：有新作品就补封面 + 拉完整提示词进来，
+# 没有新增时只跑一次列表比对（3 个请求），几秒钟结束。
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kook-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 同步新增作品与完整提示词
+        env:
+          KOOK_COOKIE: ${{ secrets.KOOK_COOKIE }}
+          GAL_OUTDIR: ${{ github.workspace }}/data
+        run: python tools/kook_sync.py
+      - name: 同步 data 版本号(缓存击穿)
+        # Pages 是 max-age=600，数据换了要让浏览器必然拉到新分片
+        run: |
+          python - <<'EOF'
+          import hashlib, re
+          ver = hashlib.md5(open('data/manifest.json','rb').read()).hexdigest()[:8]
+          p = 'assets/js/config.js'
+          s = open(p, encoding='utf-8').read()
+          s2 = re.sub(r"DATA_VER: '[^']*'", "DATA_VER: '%s'" % ver, s)
+          open(p, 'w', encoding='utf-8').write(s2)
+          h = hashlib.md5(open(p,'rb').read()).hexdigest()[:8]
+          t = open('index.html', encoding='utf-8').read()
+          t = re.sub(r"assets/js/config\.js(\?v=[0-9a-f]+)?", "assets/js/config.js?v=" + h, t)
+          open('index.html', 'w', encoding='utf-8').write(t)
+          print('DATA_VER =', ver, '| config.js?v=' + h)
+          EOF
+      - name: 提交改动
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "没有新作品"
+          else
+            git commit -m "chore: 同步最新收录作品与完整提示词"
+            git push
+          fi
