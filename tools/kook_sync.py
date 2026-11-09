@@ -56,6 +56,7 @@ ctx = ssl.create_default_context()
 ctx.check_hostname = False
 ctx.verify_mode = ssl.CERT_NONE
 _lock = threading.Lock()
+AUTH_DEAD = False        # 登录态失效(401/403)时置位, 用于收尾报警
 
 
 def read_cookie():
@@ -124,10 +125,15 @@ def fetch_list():
 
 def fetch_full(iid):
     """登录态接口取完整提示词；拿不到返回 None。"""
+    global AUTH_DEAD
     if not COOKIE:
+        AUTH_DEAD = True
         return None
     st, body, _ = http(BASE + "/site-user/api/images/%s/full-prompt" % iid,
                        {"Accept": "application/json"})
+    if st in (401, 403):
+        AUTH_DEAD = True
+        return None
     if st != 200:
         return None
     try:
@@ -234,6 +240,9 @@ def main():
             old[i][1] = short(old[i][1] or full)
             got_full += 1
 
+    if AUTH_DEAD:
+        print("::warning::KOOK_COOKIE 已失效（401），本次只写入了预览文本；"
+              "重新跑一次「一键登录.bat」后把新 Cookie 更新到仓库 Secret KOOK_COOKIE 即可。")
     allrows = list(old.values()) + rows_new
     print("[kook] 写入 %d 行（新增 %d，全文到手 %d，仍只有预览 %d）"
           % (len(allrows), len(rows_new), got_full, no_full))
