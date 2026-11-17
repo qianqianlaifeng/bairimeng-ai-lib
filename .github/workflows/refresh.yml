@@ -57,6 +57,8 @@ jobs:
           OI_PAGES: '20'
           # 源图床主机(数据里会写成完整直连地址, 需要这个 Secret)
           IMG_HOST_O: ${{ secrets.IMG_HOST_O }}
+          GAL_OUTDIR: ${{ github.workspace }}/data
+          GAL_RAW_DIR: ${{ github.workspace }}/.cache
         run: |
           python tools/fetch_openimg.py
           python tools/build_oi.py
