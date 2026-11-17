@@ -23,8 +23,10 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-OUT = os.path.join(ROOT, "app", "data")
-CACHE = os.path.join(ROOT, ".cache")
+# 数据目录优先取 GAL_OUTDIR(Actions 每日刷新用), 否则退回 app/data。
+# 2026-11-17 修复: 本仓库数据在根目录 data/, 没有 app/data, 旧硬编码导致写入失败。
+OUT = os.environ.get("GAL_OUTDIR") or os.path.join(ROOT, "app", "data")
+CACHE = os.environ.get("GAL_RAW_DIR") or os.path.join(ROOT, ".cache")
 PAGE = 60
 PAGES = int(os.environ.get("OI_PAGES", "20"))
 CHUNK = 100          # 每个分片的条数(首屏只拉第 0 片, 拆小能明显加快首屏)
@@ -40,17 +42,23 @@ ICON = "🎨"
 
 
 def img_base():
-    """源图床基础地址。优先环境变量 IMG_BASE_O, 其次 secrets.json 的 IMG_HOST_O。"""
-    v = os.environ.get("IMG_BASE_O", "")
+    """源图床基础地址。兼容三种来源:
+       1) 环境变量 IMG_HOST_O (GitHub Actions 走这个, 可能带或不带 https://)
+       2) 环境变量 IMG_BASE_O (旧名, 完整 URL)
+       3) secrets.json 的 IMG_HOST_O (本地开发)
+    """
+    v = os.environ.get("IMG_HOST_O") or os.environ.get("IMG_BASE_O") or ""
+    if v and not v.startswith("http"):
+        v = "https://" + v
     if not v:
         sp = os.path.join(ROOT, "secrets.json")
         if os.path.exists(sp):
             s = json.load(open(sp, encoding="utf-8"))
             h = s.get("IMG_HOST_O") or ""
             if h:
-                v = "https://" + h
+                v = h if h.startswith("http") else "https://" + h
     if not v:
-        sys.exit("!! 缺少 IMG_HOST_O (环境变量 IMG_BASE_O 或 secrets.json)")
+        sys.exit("!! 缺少 IMG_HOST_O (环境变量 IMG_HOST_O / IMG_BASE_O 或 secrets.json)")
     return v.rstrip("/") + "/"
 
 
