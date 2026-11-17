@@ -8,7 +8,15 @@
 <title>白日梦AI生成库 · 灵感画廊 · 视频 · 文本</title>
 <meta name="description" content="图片提示词 · 视频提示词 · 文本提示词，五万余条精选灵感，全部开放可看、自由复制。" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%236366f1'/%3E%3Cpath d='M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z' fill='white'/%3E%3C/svg%3E" />
-<link rel="stylesheet" href="assets/css/style.css?v=4d5f5f19" />
+<script>
+  /* 默认夜晚模式；必须在 CSS 生效前定好 class，避免开页先闪一下白底 */
+  (function () {
+    var t = 'dark';
+    try { t = localStorage.getItem('br_theme') || 'dark'; } catch (e) { }
+    document.documentElement.classList.toggle('is-dark', t !== 'light');
+  })();
+</script>
+<link rel="stylesheet" href="assets/css/style.css?v=20261117b" />
 </head>
 <body>
 
@@ -19,6 +27,7 @@
       <span class="logo-text">白日梦AI生成库<small>图片 · 视频 · 文本 提示词</small></span>
     </a>
     <div class="nav-right">
+      <button class="theme-toggle" id="themeToggle" type="button" aria-label="切换日间模式" title="切换日间 / 夜间模式"><span class="theme-toggle__icon" aria-hidden="true">☀</span></button>
       <a class="btn btn-ghost" href="usage.html">使用说明</a>
     </div>
   </div>
@@ -63,7 +72,7 @@
       <button id="autoplayBtn" title="视频滚进画面时自动静音循环播放">▶ 自动播放</button>
     </div>
     <div class="seg" id="sortGroup">
-      <button data-sort="newest" class="active" title="最新收录的排在最前面">🆕 最新</button>
+      <button data-sort="newest" class="active" title="按发布日期倒序，图片和视频都适用">🆕 日期最新</button>
       <button data-sort="long">最详细</button>
       <button data-sort="short">最精简</button>
       <button data-sort="default">原顺序</button>
@@ -144,6 +153,7 @@
 <div id="toast" style="position:fixed;left:50%;bottom:38px;transform:translate(-50%,20px);background:rgba(22,24,29,.93);color:#fff;padding:10px 20px;border-radius:999px;font-size:13px;opacity:0;pointer-events:none;transition:.25s;z-index:999"></div>
 
 <script src="assets/js/config.js?v=66c9fa79"></script>
-<script src="assets/js/app.js?v=9ca00b9b"></script>
+<script src="assets/js/theme.js?v=20261117a"></script>
+<script src="assets/js/app.js?v=20261117a"></script>
 </body>
 </html>

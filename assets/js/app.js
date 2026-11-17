@@ -279,19 +279,53 @@
       time: r[7] || ''
     };
   }
-  /* 「最新在前」用的稳定新鲜度：按收录批次分层，批次内按真实发布时间倒序。
-     没有时间的老数据保持原本顺序，不会因为分片是异步到达就乱跳。 */
+  /* 「日期最新」用的发布日期。图片和视频统一按这个倒序：
+     1) KOOK 快照行自带第 8 字段 YYYY-MM-DD；
+     2) oi-/wf-x-/h3-x- 的编号是 X(Twitter) 雪花 ID，右移 22 位 + 2011-11-04 就是发帖时间；
+     3) wf-arc-YYMMDD / wf-own-xxxx-YYYYMMDD 这类编号里直接写了日期。
+     没有日期的老数据（g-/lp-/hv- 等）排在最后，并保持原本顺序不跳动。 */
+  var SNOW_EPOCH = 1288834974657;
+  function dateFromSnowflake(s) {
+    var m = /(?:^|[^0-9])((?:1|2)[0-9]{18})(?:[^0-9]|$)/.exec(s);
+    if (!m) return 0;
+    // 用除法而不是 >>：19 位 ID 超过 JS 32 位位运算范围，右移会溢出成错误年份。
+    var d = new Date(m[1] / 4194304 + SNOW_EPOCH);
+    if (isNaN(d.getTime())) return 0;
+    var y = d.getUTCFullYear();
+    if (y < 2015 || y > 2035) return 0;
+    return Date.UTC(y, d.getUTCMonth(), d.getUTCDate());
+  }
+  function dateFromId(id) {
+    var s = String(id || '');
+    var m = /(?:^|[^0-9])(20[0-9]{6})(?:[^0-9]|$)/.exec(s);   // YYYYMMDD
+    if (!m) m = /(?:^|[^0-9])([0-9]{2})([0-9]{2})([0-9]{2})(?:[^0-9]|$)/.exec(s); // YYMMDD
+    if (!m) return 0;
+    var y, mo, da;
+    if (m[1].length === 8) { y = +m[1].slice(0, 4); mo = +m[1].slice(4, 6); da = +m[1].slice(6, 8); }
+    else { y = 2000 + +m[1]; mo = +m[2]; da = +m[3]; }
+    if (y < 2015 || y > 2035 || mo < 1 || mo > 12 || da < 1 || da > 31) return 0;
+    return Date.UTC(y, mo - 1, da);
+  }
+  function itemDate(p) {
+    if (p._date != null) return p._date;
+    var d = 0;
+    var t = String(p.time || '');
+    if (/^[0-9]{4}-[0-9]{2}-[0-9]{2}/.test(t)) {
+      var parsed = Date.parse(t.slice(0, 10));
+      if (!isNaN(parsed)) d = parsed;
+    }
+    if (!d) d = dateFromSnowflake(String(p.id || ''));
+    if (!d) d = dateFromId(String(p.id || ''));
+    p._date = d || 0;
+    return p._date;
+  }
+  function dateLabel(p) {
+    var d = itemDate(p);
+    return d ? new Date(d).toISOString().slice(0, 10) : '';
+  }
   function freshness(p) {
-    if (p._fresh != null) return p._fresh;
-    var id = String(p.id || ''), cat = String(p.cat || ''), base;
-    if (id.indexOf('kook-') === 0 || cat.indexOf('kook-') === 0) base = 4e12;       // 最新收录
-    else if (id.indexOf('wf-') === 0 || cat.indexOf('wf-') === 0) base = 3e12;      // 外部图库
-    else if (id.indexOf('oi-') === 0 || cat.indexOf('oi-') === 0) base = 2e12;      // 开放精选
-    else base = 1e12;                                                                 // 原有基础库
-    var ts = 0;
-    if (p.time) { var d = Date.parse(p.time); if (!isNaN(d)) ts = d / 1000; }
-    p._fresh = base + ts;
-    return p._fresh;
+    // 有日期的按日期倒序；没日期的保持原顺序、稳稳排在最后。
+    return itemDate(p) || 1;
   }
   /* 最新收录的三个分类（KOOK 灵绘库） */
   function isNewCat(key) { return /^kook-/.test(String(key || '')); }
@@ -531,7 +565,7 @@
         fmtNum(p.chars) + ' 字</button>' : '') +
       '<div class="card-foot"><span class="cat-tag">' + esc(p.catLabel) + '</span>' +
         (p.kind === 'video' ? '<span>▶ 视频</span>' : '') +
-        '<span class="chars">' + (p.time ? esc(p.time.slice(5)) + ' · ' : '') +
+        '<span class="chars">' + (dateLabel(p) ? esc(dateLabel(p).slice(2)) + ' · ' : '') +
         fmtNum(p.chars) + ' 字</span></div>' +
     '</div>';
     return '<div class="prompt-card" data-id="' + esc(p.id) + '">' + cover + body + '</div>';

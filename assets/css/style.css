@@ -49,6 +49,13 @@ input { font-family: inherit; }
 .logo-mark svg { width: 19px; height: 19px; display: block; }
 .logo-text small { display: block; font-size: 10px; font-weight: 500; color: var(--muted); letter-spacing: 1.5px; }
 .nav-right { display: flex; align-items: center; gap: 10px; }
+.theme-toggle {
+  width: 36px; height: 36px; border-radius: 999px; display: grid; place-items: center;
+  border: 1px solid var(--line); background: var(--card); color: var(--accent);
+  font-size: 17px; line-height: 1; transition: .18s;
+}
+.theme-toggle:hover { border-color: var(--accent); background: var(--accent-soft); transform: rotate(-12deg); }
+.theme-toggle__icon { display: block; }
 .btn {
   height: 36px; padding: 0 16px; border-radius: 999px; font-size: 14px; font-weight: 600;
   display: inline-flex; align-items: center; gap: 6px; transition: .18s; white-space: nowrap;
@@ -538,3 +545,62 @@ input { font-family: inherit; }
   .card-cover .cat-icon { font-size: 34px; }
   .search-btn { padding: 0 18px; height: 40px; }
 }
+
+/* ===========================================================
+   夜晚模式（默认）：只覆盖浅色写死的背景/文字，黑金头图保持原样
+   =========================================================== */
+html.is-dark {
+  color-scheme: dark;
+  --accent: #e6be68;
+  --accent-2: #f6dc96;
+  --accent-soft: #342b18;
+  --accent-dark: #d3a94e;
+  --text: #f2f4f8;
+  --text-2: #c7cdd8;
+  --muted: #949cab;
+  --line: #323640;
+  --bg: #000;
+  --card: #000;
+  --gold: #e6be68;
+  --gold-2: #f6dc96;
+  --gold-line: rgba(230, 190, 104, .34);
+  --shadow: 0 2px 10px rgba(0, 0, 0, .35);
+  --shadow-lg: 0 14px 34px rgba(0, 0, 0, .55);
+}
+html.is-dark .header,
+html.is-dark .tabbar,
+html.is-dark .categories-bar,
+html.is-dark .site-footer { background: rgba(0, 0, 0, .96); }
+html.is-dark .categories-bar::after { background: linear-gradient(90deg, rgba(0,0,0,0), #000); }
+html.is-dark .search-wrapper {
+  background: #050505; color: var(--text);
+  box-shadow: 0 16px 40px rgba(0,0,0,.5), 0 0 0 1px rgba(230,190,104,.3);
+}
+html.is-dark .search-input { color: var(--text); }
+html.is-dark .tab,
+html.is-dark .hint,
+html.is-dark .seg,
+html.is-dark .chip,
+html.is-dark .load-more button,
+html.is-dark .btn-outline { background: #060606; color: var(--text-2); }
+html.is-dark .chip.is-new { background: #0b0904; }
+html.is-dark .chip.active,
+html.is-dark .btn-primary { color: #1a1500; }
+html.is-dark .tab.active { color: #fff5d6; }
+html.is-dark .hint.hint-warn { background: #382a17; border-color: #6b4b1d; color: #f0c987; }
+html.is-dark .card-cover { background: #060606; }
+html.is-dark .card-excerpt.full-prompt { background: #080706; }
+html.is-dark .card-foot { border-top-color: #1a1a1a; }
+html.is-dark .card-foot .dot { background: #555d6c; }
+html.is-dark .modal { background: #000; }
+html.is-dark .meta-row .pill,
+html.is-dark .prompt-text,
+html.is-dark .preview-fail { background: #060606; color: var(--text); }
+html.is-dark .src-note .kook-tip,
+html.is-dark .media-note.note-silent { background: #332a1c; border-color: #6b4b1d; color: #f0c987; }
+html.is-dark .media-note.note-audio { background: #163029; border-color: #245b48; color: #8ee0ba; }
+html.is-dark .arg { background: #3a2c18; color: #f0c987; border-color: #6b4b1d; }
+html.is-dark .arg b { color: #f6dc96; }
+html.is-dark .arg i { color: #ffb27a; }
+html.is-dark .guide-card code { background: #242831; color: #b9b0ff; }
+html.is-dark .copy-hint { color: #7bd8a2; }
