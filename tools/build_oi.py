@@ -16,7 +16,9 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-DATA = os.path.join(ROOT, "app", "data")
+# 与 fetch_wf/build_wf 一致: 优先 GAL_OUTDIR(Actions), 否则退回 app/data。
+# 2026-11-17 修复: 本仓库数据在根目录 data/。
+DATA = os.environ.get("GAL_OUTDIR") or os.path.join(ROOT, "app", "data")
 MANI = os.path.join(DATA, "manifest.json")
 
 # 没抓到 .cache 时的分类兜底(与 fetch_openimg 的命名规则一致)
