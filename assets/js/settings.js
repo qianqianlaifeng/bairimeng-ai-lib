@@ -85,7 +85,32 @@
   function openPanel() {
     var m = $('settingsMask'); if (!m) return;
     m.classList.add('open'); m.setAttribute('aria-hidden', 'false');
+    updateReportInfo();
   }
+
+  /* ---------- 举报记录（隐藏 / 转移） ---------- */
+  function readReports() {
+    var r = { hidden: [], recat: {} };
+    try {
+      var raw = localStorage.getItem('br_reports');
+      if (raw) {
+        var o = JSON.parse(raw);
+        if (o && Array.isArray(o.hidden)) r.hidden = o.hidden;
+        if (o && o.recat && typeof o.recat === 'object') r.recat = o.recat;
+      }
+    } catch (e) {}
+    return r;
+  }
+  function updateReportInfo() {
+    var el = $('setReportInfo'); if (!el) return;
+    var r = readReports();
+    var nH = (r.hidden || []).length;
+    var nM = r.recat ? Object.keys(r.recat).length : 0;
+    el.textContent = '已隐藏 ' + nH + ' 张 · 已转移 ' + nM + ' 张（只在本机生效）';
+    var btn = $('setReportReset');
+    if (btn) btn.disabled = (nH + nM) === 0;
+  }
+
   function closePanel() {
     var m = $('settingsMask'); if (!m) return;
     m.classList.remove('open'); m.setAttribute('aria-hidden', 'true');
@@ -176,6 +201,17 @@
       if (themeAuto) themeAuto.checked = cfg.themeAuto;
       applyAll();
       toast('已恢复默认设置');
+    });
+
+    // 举报记录：一键恢复全部隐藏/转移
+    var repReset = $('setReportReset');
+    if (repReset) repReset.addEventListener('click', function () {
+      if (repReset.disabled) return;
+      try { localStorage.removeItem('br_reports'); } catch (e) {}
+      // app.js 内部有缓存，通知它清空并重绘
+      if (window.BR_clearReports) window.BR_clearReports();
+      updateReportInfo();
+      toast('已恢复全部被隐藏/转移的图片');
     });
 
     var bt = $('backTop');

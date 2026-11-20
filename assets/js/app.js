@@ -16,7 +16,7 @@
   })();
   var state = {
     tab: 'gal', cat: '', q: '', lang: '', sort: 'newest', page: 1, openId: '',
-    onlyRefs: false,
+    onlyRefs: false, gender: '',
     text: [], image: [], video: [], gal: [], list: [], manifest: null, loading: {},
     fails: { text: 0, image: 0, video: 0, gal: 0 },
     chunks: { text: 0, image: 0, video: 0, gal: 0 },
@@ -24,6 +24,55 @@
     chunkDone: { text: [], image: [], video: [], gal: [] }
   };
   var $ = function (s) { return document.querySelector(s); };
+
+  /* ---------- 举报/纠错记录（纯静态站，本地生效 + 可复制反馈） ----------
+     结构: { hidden: [id...], recat: { id: '目标分类' } }
+     - hidden: 本地隐藏，不再出现在列表里（可在设置里一键恢复）
+     - recat : 本地把这张图"转移"到用户选定的分类（原分类里消失，新分类里出现）
+     静态站没有后端，所以改动只存在本机 localStorage；同时提供「复制反馈内容」
+     让用户把问题发给站长，做真正的数据修正。 */
+  var REPORT_KEY = 'br_reports';
+  var reportCache = null;
+  function loadReports() {
+    if (reportCache) return reportCache;
+    var r = { hidden: [], recat: {} };
+    try {
+      var raw = localStorage.getItem(REPORT_KEY);
+      if (raw) {
+        var o = JSON.parse(raw);
+        if (o && Array.isArray(o.hidden)) r.hidden = o.hidden;
+        if (o && o.recat && typeof o.recat === 'object') r.recat = o.recat;
+      }
+    } catch (e) {}
+    reportCache = r;
+    return r;
+  }
+  function saveReports() {
+    try { localStorage.setItem(REPORT_KEY, JSON.stringify(reportCache || { hidden: [], recat: {} })); } catch (e) {}
+  }
+  function isHiddenId(id) {
+    var r = loadReports();
+    for (var i = 0; i < r.hidden.length; i++) if (r.hidden[i] === id) return true;
+    return false;
+  }
+  function recatOf(id) { return loadReports().recat[id] || ''; }
+  function addHidden(id) {
+    var r = loadReports();
+    if (r.hidden.indexOf(id) === -1) r.hidden.push(id);
+    if (r.recat[id]) delete r.recat[id];
+    saveReports();
+  }
+  function addRecat(id, cat) {
+    var r = loadReports();
+    r.recat[id] = cat;
+    var hi = r.hidden.indexOf(id);
+    if (hi !== -1) r.hidden.splice(hi, 1);
+    saveReports();
+  }
+  function clearReports() {
+    reportCache = { hidden: [], recat: {} };
+    saveReports();
+  }
 
   /* 图片地址处理分三层:
      1) IMG_BASE       —— 兼容保留: 相对路径拼前缀(留空 = 同域)
@@ -373,6 +422,53 @@
   var EXPAND = { text: expandText, image: expandImage, video: expandVideo, gal: expandGal, vibe: expandVibe, h3: expandH3 };
 
   /* ---------- 分类 ---------- */
+  /* ---------- 人像性别识别（仅用于人像分类下的「全部/男/女」子筛选） ----------
+     根据标题主语判断性别；识别不出返回 ''，归到「全部」，不会漏掉任何条目。
+     人物主语优先：先看主语位置的性别词，避免"抱着女儿的父亲"这类被误判。 */
+  var PORTRAIT_KEYS = { '人像写真': 1, '人像人物': 1, '人像动漫': 1 };
+  function isPortraitCat(key) { return !!PORTRAIT_KEYS[key]; }
+
+  var FEM_WORDS = ['女','女孩','女人','女性','少女','女士','她','新娘','妈妈','母亲','姐姐','妹妹','阿姨','姑娘','奶奶','外婆','女儿','嫂','woman','women','girl','female','lady','she','her','bride','actress','princess','queen','mom','mother'];
+  var MAS_WORDS = ['男','男孩','男人','男性','少年','先生','他','新郎','爸爸','父亲','哥哥','弟弟','叔叔','爷爷','儿子','小伙','man','men','boy','male','gentleman','he','his','groom','actor','prince','king','dad','father'];
+  function hasWord(text, words) {
+    for (var i = 0; i < words.length; i++) {
+      var w = words[i];
+      // 英文词用词边界，避免 "she" 命中 "sheer"、"he" 命中 "the"
+      if (/^[a-z]+$/i.test(w)) {
+        if (new RegExp('\\b' + w + '\\b', 'i').test(text)) return true;
+      } else if (text.indexOf(w) !== -1) return true;
+    }
+    return false;
+  }
+  function detectGender(title) {
+    var t = String(title || '');
+    // 取主语区（前 30 字）优先判断，避免句尾附带的人名/亲属干扰
+    var head = t.slice(0, 30);
+    var fHead = hasWord(head, FEM_WORDS), mHead = hasWord(head, MAS_WORDS);
+    if (fHead && !mHead) return 'F';
+    if (mHead && !fHead) return 'M';
+    if (fHead && mHead) {
+      // 两者都在主语区：取最先出现的位置
+      var fp = -1, mp = -1, i, w;
+      for (i = 0; i < FEM_WORDS.length; i++) {
+        w = FEM_WORDS[i];
+        var fi = /^[a-z]+$/i.test(w) ? head.toLowerCase().search(new RegExp('\\b' + w.toLowerCase() + '\\b')) : head.indexOf(w);
+        if (fi >= 0 && (fp < 0 || fi < fp)) fp = fi;
+      }
+      for (i = 0; i < MAS_WORDS.length; i++) {
+        w = MAS_WORDS[i];
+        var mi = /^[a-z]+$/i.test(w) ? head.toLowerCase().search(new RegExp('\\b' + w.toLowerCase() + '\\b')) : head.indexOf(w);
+        if (mi >= 0 && (mp < 0 || mi < mp)) mp = mi;
+      }
+      return fp >= 0 && fp <= mp ? 'F' : 'M';
+    }
+    // 主语区没有，再看全文（缩小误判风险：全文同时出现时仍按先出现者）
+    var fAll = hasWord(t, FEM_WORDS), mAll = hasWord(t, MAS_WORDS);
+    if (fAll && !mAll) return 'F';
+    if (mAll && !fAll) return 'M';
+    return '';
+  }
+
   function currentCats() {
     var src = catMap();
     var cnt = {};
@@ -434,6 +530,7 @@
       b.classList.add('active');
       state.cat = b.dataset.cat;
       state.page = 1;
+      syncGenderBar();
       apply();
       /* 先拉该分类的「首屏包」(单个小文件, 1~2 秒就有图), 再在后台按分片慢慢补全。
          全程不遮罩: 没数据时显示"正在加载该分类", 有数据就画, 条数持续增长。 */
@@ -477,18 +574,39 @@
   }
 
   // 按分类 key 选中某个 chip（找不到就直接按 key 筛）
+  /* 性别栏只在该分类是人像时显示；切换走时重置到「全部」，避免残留筛选导致空结果 */
+  function syncGenderBar() {
+    var bar = $('#genderBar');
+    if (!bar) return;
+    var show = isPortraitCat(state.cat) && state.tab === 'gal';
+    bar.hidden = !show;
+    if (!show && state.gender) {
+      state.gender = '';
+      var g = $('#genderGroup');
+      if (g) g.querySelectorAll('button').forEach(function (x, i) { x.classList.toggle('active', i === 0); });
+    }
+  }
+
   function selectCat(key) {
     var box = $('#categoriesScroll');
     var b = box.querySelector('.chip[data-cat="' + esc(key || '') + '"]');
     if (b) { b.click(); return; }
-    state.cat = key || ''; state.page = 1; apply();
+    state.cat = key || ''; state.page = 1; syncGenderBar(); apply();
   }
 
   /* ---------- 过滤 ---------- */
   function apply() {
     var q = state.q.trim().toLowerCase();
+    var rep = loadReports();
+    var recat = rep.recat;
     var list = pool().filter(function (p) {
-      if (state.cat && p.cat !== state.cat) return false;
+      // 本地举报：已隐藏的直接不显示
+      if (isHiddenId(p.id)) return false;
+      // 本地纠错：用户把这图转移到别的分类后，按"有效分类"判断
+      var effCat = recat[p.id] || p.cat;
+      if (state.cat && effCat !== state.cat) return false;
+      // 人像分类下的性别子筛选：识别不出的（''）只在「全部」显示，男/女视图里排除
+      if (state.gender && isPortraitCat(effCat) && detectGender(p.title) !== state.gender) return false;
       if (state.onlyRefs) {
         // 灵感画廊现在只装图片提示词，视频提示词在独立页签里。
         // 这里仍留一道兜底：画廊里只认带 gal 标记的图片条目。
@@ -504,6 +622,21 @@
     if (state.sort === 'newest') list.sort(function (a, b) { return freshness(b) - freshness(a); });
     else if (state.sort === 'long') list.sort(function (a, b) { return b.chars - a.chars; });
     else if (state.sort === 'short') list.sort(function (a, b) { return a.chars - b.chars; });
+    // 被本地转移到别的分类的条目：浅拷贝并更新分类标签，保证卡片上显示的分类与所在分类一致
+    var hasRecat = false;
+    for (var _k in recat) { hasRecat = true; break; }
+    if (hasRecat) {
+      var cmap = (state.manifest && state.manifest.galCats) || catMap();
+      list = list.map(function (p) {
+        var rc = recat[p.id];
+        if (!rc) return p;
+        var cm = cmap[rc] || [rc, '✨'];
+        var q = {};
+        for (var k in p) q[k] = p[k];
+        q.cat = rc; q.catLabel = cm[0]; q.catIcon = cm[1] || '✨';
+        return q;
+      });
+    }
     state.list = list;
     render();
   }
@@ -560,6 +693,10 @@
       inner +
       (isVid ? '<span class="play-btn"></span>' : '') +
       (isVid && !p.silent ? '<span class="audio-badge" title="这条带原声">🔊</span>' : '') +
+      '<button class="report-flag" type="button" data-report="' + esc(p.id) + '" ' +
+        'title="举报 / 纠错" aria-label="举报这张图">' +
+        '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" stroke="none" aria-hidden="true">' +
+        '<path d="M4 2.5v19a1 1 0 0 0 2 0v-7h13.2a.8.8 0 0 0 .66-1.25L17.2 9l2.66-4.25A.8.8 0 0 0 19.2 3.5H6a1 1 0 0 1-1-1z"/></svg></button>' +
       (p.kind === 'text' ? textBadges(p) :
         '<span class="tile-overlay"><b class="tile-title">' + esc(p.title) + '</b>' +
         '<i class="tile-cat">' + esc(p.catLabel) + '</i></span>') +
@@ -802,6 +939,74 @@
     $('#modalMask').classList.remove('open');
     document.body.style.overflow = '';
     startAutoplay();          // 弹窗关了, 网格里的视频接着播
+  }
+
+  /* ---------- 举报 / 纠错面板 ---------- */
+  var reportId = '';
+  function findItem(id) {
+    var t = state.tab;
+    var arr = state[t] || [];
+    for (var i = 0; i < arr.length; i++) if (arr[i].id === id) return arr[i];
+    return null;
+  }
+  function openReport(id) {
+    var p = findItem(id);
+    if (!p) return;
+    reportId = id;
+    // 预览
+    var img = p.cover ? '<img src="' + esc(coverUrl(p.cover)) + '" referrerpolicy="no-referrer" alt="" />' : '';
+    $('#reportPreview').innerHTML = img +
+      '<div class="rp-txt"><div class="rp-title">' + esc(p.title || p.catLabel || '') + '</div>' +
+      '<div class="rp-cat">当前分类：' + esc(p.catLabel || p.cat) + '</div></div>';
+    // 分类下拉：填所有 gal 分类（排除当前分类）
+    var man = state.manifest || {};
+    var cats = man.galCats || {};
+    var opts = '<option value="">选择正确分类…</option>';
+    Object.keys(cats).forEach(function (k) {
+      if (k === p.cat) return;
+      var lab = (cats[k] || [k])[0];
+      var ic = (cats[k] || ['', ''])[1] || '';
+      opts += '<option value="' + esc(k) + '">' + esc((ic ? ic + ' ' : '') + lab) + '</option>';
+    });
+    $('#reportCatSelect').innerHTML = opts;
+    $('#reportHint').textContent = '';
+    $('#reportMask').classList.add('open');
+    $('#reportMask').setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeReport() {
+    $('#reportMask').classList.remove('open');
+    $('#reportMask').setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+    reportId = '';
+  }
+  function reportFeedbackText(p, action, targetCat) {
+    var man = state.manifest || {};
+    var cats = man.galCats || {};
+    var tgt = targetCat ? ((cats[targetCat] || [targetCat])[0]) : '';
+    return [
+      '【白日梦AI生成库 · 图片反馈】',
+      '图片ID：' + p.id,
+      '标题：' + (p.title || ''),
+      '当前分类：' + (p.catLabel || p.cat),
+      '问题：' + (action === 'hide' ? '这张图有问题，建议隐藏/下架' : ('分类错误，建议转移到「' + tgt + '」')),
+      '链接：' + location.origin + location.pathname + '#' + encodeURIComponent(p.id)
+    ].join('\n');
+  }
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (res, rej) {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        res();
+      } catch (e) { rej(e); }
+    });
   }
 
   /* ---------- 数据加载（分片懒加载） ---------- */
@@ -1193,8 +1398,9 @@
     stopStream(state.tab);   // 旧页签的后台预取别跟新页签抢带宽
     state.tab = tab;
     state.cat = ''; state.page = 1; state.q = ''; state.lang = ''; state.sort = 'newest';
-    state.onlyRefs = false;
+    state.onlyRefs = false; state.gender = '';
     if ($('#refGroup')) $('#refGroup').querySelector('button').classList.remove('active');
+    syncGenderBar();
     $('#searchInput').value = '';
     $('#langGroup').style.display = (tab === 'gal' || tab === 'vibe' || tab === 'h3') ? 'none' : '';
     // 只有视频/Vibe 页有视频卡片, 自动播放开关就在那儿出现
@@ -1301,6 +1507,14 @@
   function bind() {
     var grid = $('#grid');
     grid.addEventListener('click', function (e) {
+      // 举报旗标：优先处理，且不能冒泡成「打开卡片」
+      var rf = e.target.closest('.report-flag');
+      if (rf) {
+        e.preventDefault();
+        e.stopPropagation();
+        openReport(rf.dataset.report);
+        return;
+      }
       // 「展开全文」就地展开/收起，别把点击冒泡成开弹窗
       var fb = e.target.closest('.fold-btn');
       if (fb) {
@@ -1344,6 +1558,51 @@
     $('#modalMask').addEventListener('click', function (e) { if (e.target === $('#modalMask')) closeModal(); });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeModal(); });
 
+    // ---- 举报 / 纠错面板 ----
+    if ($('#reportClose')) $('#reportClose').addEventListener('click', closeReport);
+    if ($('#reportMask')) $('#reportMask').addEventListener('click', function (e) {
+      if (e.target === $('#reportMask')) closeReport();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && $('#reportMask') && $('#reportMask').classList.contains('open')) closeReport();
+    });
+    if ($('#reportHide')) $('#reportHide').addEventListener('click', function () {
+      var p = findItem(reportId);
+      if (!p) return closeReport();
+      var txt = reportFeedbackText(p, 'hide');
+      addHidden(reportId);
+      closeReport();
+      apply();               // 立刻从列表移除
+      toast('已隐藏这张图 · 设置里可恢复');
+      try { copyText(txt); } catch (e) {}
+    });
+    if ($('#reportMove')) $('#reportMove').addEventListener('click', function () {
+      var p = findItem(reportId);
+      if (!p) return closeReport();
+      var sel = $('#reportCatSelect');
+      var target = sel && sel.value;
+      if (!target) { $('#reportHint').textContent = '请先选择一个正确的分类'; return; }
+      var txt = reportFeedbackText(p, 'recat', target);
+      addRecat(reportId, target);
+      closeReport();
+      apply();               // 从当前分类移除（在目标分类里出现）
+      var man = state.manifest || {};
+      var lab = ((man.galCats || {})[target] || [target])[0];
+      toast('已转移到「' + lab + '」· 设置里可恢复');
+      try { copyText(txt); } catch (e) {}
+    });
+    if ($('#reportCopy')) $('#reportCopy').addEventListener('click', function () {
+      var p = findItem(reportId);
+      if (!p) return;
+      var sel = $('#reportCatSelect');
+      var txt = reportFeedbackText(p, sel && sel.value ? 'recat' : 'hide', sel && sel.value);
+      copyText(txt).then(function () {
+        $('#reportHint').textContent = '✓ 反馈内容已复制，可直接粘贴发给站长';
+      }, function () {
+        $('#reportHint').textContent = '复制失败，请手动选择文本';
+      });
+    });
+
     $('#searchBtn').addEventListener('click', doSearch);
     $('#searchInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') doSearch(); });
     var timer;
@@ -1377,6 +1636,15 @@
       $('#sortGroup').querySelectorAll('button').forEach(function (x) { x.classList.remove('active'); });
       b.classList.add('active');
       state.sort = b.dataset.sort; state.page = 1; apply();
+    });
+
+    // 人像性别子筛选（仅人像分类可见）
+    if ($('#genderGroup')) $('#genderGroup').addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-gender]');
+      if (!b) return;
+      $('#genderGroup').querySelectorAll('button').forEach(function (x) { x.classList.remove('active'); });
+      b.classList.add('active');
+      state.gender = b.dataset.gender; state.page = 1; apply();
     });
 
     // 「只看风格参考」：打开时若池子还没拉全，先把分片拉完再筛，避免结果不全
@@ -1421,6 +1689,8 @@
     window.BR_closeModal = closeModal;
     window.BR_modalOpen = function () { return $('#modalMask').classList.contains('open'); };
     window.BR_currentId = function () { return state.openId; };
+    // 举报记录：设置面板「全部恢复」调用，清本地缓存并重绘
+    window.BR_clearReports = function () { clearReports(); apply(); };
 
     $('#copyBtn').addEventListener('click', function () {
       var open = $('#modalMask').classList.contains('open');
@@ -1449,8 +1719,10 @@
     $('#logoLink').addEventListener('click', function (e) {
       e.preventDefault();
       state.cat = ''; state.q = ''; state.lang = ''; state.page = 1; state.sort = 'newest';
-      state.onlyRefs = false;
+      state.onlyRefs = false; state.gender = '';
       if ($('#refGroup')) $('#refGroup').querySelector('button').classList.remove('active');
+      if ($('#genderGroup')) $('#genderGroup').querySelectorAll('button').forEach(function (x, i) { x.classList.toggle('active', i === 0); });
+      syncGenderBar();
       $('#searchInput').value = '';
       $('#langGroup').querySelectorAll('button').forEach(function (x, i) { x.classList.toggle('active', i === 0); });
       $('#sortGroup').querySelectorAll('button').forEach(function (x, i) { x.classList.toggle('active', i === 0); });

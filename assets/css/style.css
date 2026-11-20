@@ -209,6 +209,19 @@ input { font-family: inherit; }
   flex: 0 0 auto; align-self: center; font-size: 11.5px; font-weight: 800;
   color: var(--accent-dark); letter-spacing: .5px; white-space: nowrap; padding-right: 2px;
 }
+/* 性别筛选条：只在人像分类下显示 */
+.gender-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 0 0 11px; margin-top: -2px;
+}
+.gender-bar[hidden] { display: none !important; }
+.gender-bar-label {
+  font-size: 12px; font-weight: 800; color: var(--accent-dark); white-space: nowrap;
+}
+.gender-bar .seg { padding: 2px; }
+.gender-bar .seg button { height: 26px; padding: 0 13px; font-size: 12.5px; }
+.gender-bar-hint { font-size: 11px; color: var(--muted); }
+@media (max-width: 640px) { .gender-bar-hint { display: none; } }
 
 /* ---------------- Toolbar ---------------- */
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 22px 0 14px; flex-wrap: wrap; }
@@ -665,6 +678,89 @@ html.is-dark .copy-hint { color: #7bd8a2; }
   font-size: 12px; font-weight: 600; transition: .16s;
 }
 .set-reset:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ---------------- 举报 / 纠错 ---------------- */
+/* 卡片右上角半透明旗标：平时淡出，悬停卡片才清晰，不挡图 */
+.card-cover .report-flag {
+  position: absolute; top: 8px; right: 8px; z-index: 4;
+  width: 26px; height: 26px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; line-height: 1;
+  color: #fff; background: rgba(20, 20, 26, .38);
+  border: 1px solid rgba(255, 255, 255, .35);
+  opacity: 0; transform: scale(.9); transition: opacity .16s, transform .16s, background .16s;
+  cursor: pointer; backdrop-filter: blur(4px);
+}
+.prompt-card:hover .card-cover .report-flag { opacity: .82; transform: none; }
+.card-cover .report-flag:hover { opacity: 1; background: var(--accent); border-color: var(--accent); }
+.card-cover .report-flag:active { transform: scale(.94); }
+@media (hover: none) { .card-cover .report-flag { opacity: .7; } }  /* 触屏没有悬停：常显淡态 */
+
+.report-mask {
+  position: fixed; inset: 0; z-index: 960; display: none;
+  align-items: center; justify-content: center; padding: 20px;
+  background: rgba(10, 10, 14, .5); backdrop-filter: blur(3px);
+}
+.report-mask.open { display: flex; }
+.report-panel {
+  width: min(440px, 100%); max-height: 88vh; overflow: auto;
+  background: var(--card); color: var(--text); border: 1px solid var(--line);
+  border-radius: 18px; box-shadow: var(--shadow-lg);
+  animation: setPop .18s ease-out;
+}
+.report-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--line);
+}
+.report-head h3 { margin: 0; font-size: 16px; }
+.report-body { padding: 16px 20px 18px; }
+.report-preview {
+  display: flex; gap: 12px; align-items: center;
+  padding: 10px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line);
+  margin-bottom: 14px;
+}
+.report-preview img {
+  width: 64px; height: 64px; object-fit: cover; border-radius: 8px; flex: 0 0 auto;
+  background: #eee;
+}
+.report-preview .rp-txt { min-width: 0; }
+.report-preview .rp-title {
+  font-size: 13.5px; font-weight: 700; line-height: 1.45;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.report-preview .rp-cat { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+.report-tip { font-size: 13px; color: var(--muted); margin: 0 0 12px; }
+.report-actions { display: flex; flex-direction: column; gap: 10px; }
+.report-opt {
+  display: flex; flex-direction: column; gap: 3px; text-align: left;
+  padding: 13px 15px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--text); transition: .16s; cursor: pointer;
+}
+.report-opt:hover { border-color: var(--accent); background: var(--accent-soft); }
+.report-opt b { font-size: 14px; font-weight: 700; }
+.report-opt small { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+.report-recat { cursor: default; }
+.report-recat:hover { border-color: var(--line); background: var(--bg); }
+.report-recat-row { display: flex; gap: 8px; margin-top: 9px; }
+.report-recat-row .set-select { flex: 1 1 auto; min-width: 0; height: 36px; }
+.report-go { flex: 0 0 auto; height: 36px; padding: 0 18px; border-radius: 9px; font-size: 13px; }
+.report-foot {
+  display: flex; flex-direction: column; gap: 8px;
+  margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--line);
+}
+.report-copy {
+  align-self: flex-start; padding: 8px 14px; border-radius: 9px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--text-2);
+  font-size: 12.5px; font-weight: 600; transition: .16s;
+}
+.report-copy:hover { border-color: var(--accent); color: var(--accent); }
+.report-hint { font-size: 11.5px; color: var(--muted); min-height: 16px; }
+/* 暗色适配 */
+html.is-dark .card-cover .report-flag { background: rgba(0, 0, 0, .45); }
+html.is-dark .report-opt { background: #0b0904; }
+html.is-dark .report-opt:hover { background: #1a1508; }
+html.is-dark .report-copy { background: #0b0904; }
+
 /* 返回顶部 */
 .back-top {
   position: fixed; right: 24px; bottom: 28px; z-index: 80;

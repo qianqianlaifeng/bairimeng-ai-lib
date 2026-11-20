@@ -16,7 +16,7 @@
     document.documentElement.classList.toggle('is-dark', t !== 'light');
   })();
 </script>
-<link rel="stylesheet" href="assets/css/style.css?v=35e0b1fe" />
+<link rel="stylesheet" href="assets/css/style.css?v=1bcadc1b" />
 </head>
 <body>
 
@@ -84,6 +84,15 @@
 <div class="categories-bar">
   <div class="container">
     <div class="categories-scroll" id="categoriesScroll"></div>
+    <div class="gender-bar" id="genderBar" hidden>
+      <span class="gender-bar-label">👤 性别</span>
+      <div class="seg" id="genderGroup">
+        <button data-gender="" class="active">全部</button>
+        <button data-gender="F">♀ 女性</button>
+        <button data-gender="M">♂ 男性</button>
+      </div>
+      <span class="gender-bar-hint">根据标题智能识别，识别不出的保留在「全部」</span>
+    </div>
   </div>
 </div>
 
@@ -151,6 +160,38 @@
   </div>
 </div>
 
+<!-- 举报 / 纠错面板 -->
+<div class="report-mask" id="reportMask" aria-hidden="true">
+  <div class="report-panel" role="dialog" aria-label="举报与纠错">
+    <div class="report-head">
+      <h3><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" stroke="none" style="vertical-align:-2px;margin-right:5px" aria-hidden="true"><path d="M4 2.5v19a1 1 0 0 0 2 0v-7h13.2a.8.8 0 0 0 .66-1.25L17.2 9l2.66-4.25A.8.8 0 0 0 19.2 3.5H6a1 1 0 0 1-1-1z"/></svg>举报 / 纠错</h3>
+      <button class="modal-close" id="reportClose" type="button" aria-label="关闭">✕</button>
+    </div>
+    <div class="report-body">
+      <div class="report-preview" id="reportPreview"></div>
+      <p class="report-tip" id="reportTip">这张图有什么问题？选择处理方式：</p>
+      <div class="report-actions">
+        <button class="report-opt" id="reportHide" type="button">
+          <b>🙈 隐藏这张图</b>
+          <small>从你的列表里移除，不再显示（仅本机，可随时恢复）</small>
+        </button>
+        <div class="report-opt report-recat">
+          <b>🔀 不属于该分类</b>
+          <small>选一个正确的分类，把它移过去（仅本机）</small>
+          <div class="report-recat-row">
+            <select id="reportCatSelect" class="set-select"></select>
+            <button class="btn btn-primary report-go" id="reportMove" type="button">转移</button>
+          </div>
+        </div>
+      </div>
+      <div class="report-foot">
+        <button class="report-copy" id="reportCopy" type="button">📋 复制反馈内容（发给站长修正数据）</button>
+        <span class="report-hint" id="reportHint"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- 浏览设置面板 -->
 <div class="settings-mask" id="settingsMask" aria-hidden="true">
   <div class="settings-panel" role="dialog" aria-label="浏览设置">
@@ -202,6 +243,10 @@
         <input type="checkbox" id="setThemeAuto" class="switch" />
       </label>
       <div class="set-row set-static">
+        <span class="set-info"><b>举报记录</b><small id="setReportInfo">已隐藏 0 张 · 已转移 0 张（只在本机生效）</small></span>
+        <button type="button" id="setReportReset" class="set-reset">全部恢复</button>
+      </div>
+      <div class="set-row set-static">
         <span class="set-info"><b>提示</b><small>设置保存在本机浏览器，下次打开自动生效</small></span>
         <button type="button" id="setReset" class="set-reset">恢复默认</button>
       </div>
@@ -214,7 +259,7 @@
 
 <script src="assets/js/config.js?v=8783d300"></script>
 <script src="assets/js/theme.js?v=bb265089"></script>
-<script src="assets/js/app.js?v=50e84320"></script>
-<script src="assets/js/settings.js?v=f3027166"></script>
+<script src="assets/js/app.js?v=ebae6230"></script>
+<script src="assets/js/settings.js?v=096d6941"></script>
 </body>
 </html>
