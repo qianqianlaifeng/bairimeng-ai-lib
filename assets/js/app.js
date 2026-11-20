@@ -16,11 +16,11 @@
   })();
   var state = {
     tab: 'gal', cat: '', q: '', lang: '', sort: 'newest', page: 1, openId: '',
-    onlyRefs: false, gender: '', kookSub: '',
-    text: [], image: [], video: [], gal: [], list: [], manifest: null, loading: {},
+    onlyRefs: false, gender: '', kookSub: '', favKind: 'image',
+    text: [], image: [], video: [], gal: [], fav: [], list: [], manifest: null, loading: {},
     fails: { text: 0, image: 0, video: 0, gal: 0 },
-    chunks: { text: 0, image: 0, video: 0, gal: 0 },
-    done: { text: false, image: false, video: false, gal: false },
+    chunks: { text: 0, image: 0, video: 0, gal: 0, fav: 1 },
+    done: { text: false, image: false, video: false, gal: false, fav: true },
     chunkDone: { text: [], image: [], video: [], gal: [] }
   };
   var $ = function (s) { return document.querySelector(s); };
@@ -72,6 +72,111 @@
   function clearReports() {
     reportCache = { hidden: [], recat: {} };
     saveReports();
+  }
+
+  /* ---------- 收藏（本机 localStorage，无需登录） ----------
+     结构: { id: 条目快照(含 favAt 收藏时间) }
+     存快照而不是只存 id: 收藏库不依赖原分片加载, 点开即看;
+     若条目已在当前数据池里(如即梦签名直链每日刷新), 渲染时用最新行覆盖快照。 */
+  var FAV_KEY = 'br_favs';
+  var favMap = null;
+  var modalItem = null;   // 当前弹窗条目(轮播直开时可能不在任何数据池里)
+  function loadFavs() {
+    if (favMap) return favMap;
+    favMap = {};
+    try {
+      var raw = localStorage.getItem(FAV_KEY);
+      if (raw) { var o = JSON.parse(raw); if (o && typeof o === 'object' && !Array.isArray(o)) favMap = o; }
+    } catch (e) {}
+    return favMap;
+  }
+  function saveFavs() {
+    try { localStorage.setItem(FAV_KEY, JSON.stringify(favMap || {})); return true; }
+    catch (e) { toast('收藏保存失败：浏览器存储空间不足'); return false; }
+  }
+  function isFav(id) { return !!loadFavs()[id]; }
+  function favCount() { return Object.keys(loadFavs()).length; }
+  function favList() {
+    var fm = loadFavs();
+    return Object.keys(fm).map(function (k) { return fm[k]; })
+      .sort(function (a, b) { return (b.favAt || 0) - (a.favAt || 0); });
+  }
+  function findAnyItem(id) {
+    var tabs = ['gal', 'video', 'vibe', 'h3', 'text'];
+    for (var t = 0; t < tabs.length; t++) {
+      var arr = state[tabs[t]] || [];
+      for (var i = 0; i < arr.length; i++) if (arr[i].id === id) return arr[i];
+    }
+    if (modalItem && modalItem.id === id) return modalItem;
+    return loadFavs()[id] || null;
+  }
+  function snapshotOf(p, favAt) {
+    var q = {};
+    for (var k in p) { if (k.charAt(0) !== '_') q[k] = p[k]; }  // 去掉 _date/_g/_pt 等运行期缓存
+    q.favAt = favAt || Date.now();
+    return q;
+  }
+  function toggleFav(id) {
+    var fm = loadFavs();
+    if (fm[id]) {
+      delete fm[id];
+      saveFavs();
+      syncFavUi(id);
+      toast('已取消收藏');
+      return false;
+    }
+    var p = findAnyItem(id);
+    if (!p || p.kind === 'text') return false;
+    fm[id] = snapshotOf(p);
+    if (!saveFavs()) { delete fm[id]; return false; }
+    syncFavUi(id);
+    toast('已收藏 · 顶部「⭐ 我的收藏」里查看');
+    return true;
+  }
+  function syncFavUi(id) {
+    var on = isFav(id);
+    document.querySelectorAll('#grid .fav-btn').forEach(function (b) {
+      if (b.dataset.fav !== id) return;
+      b.classList.toggle('is-fav', on);
+      b.textContent = on ? '★' : '☆';
+      b.title = on ? '取消收藏' : '收藏';
+    });
+    if (state.openId === id) updateFavModalBtn();
+    var c = $('#tabFavCnt');
+    if (c) c.textContent = fmtNum(favCount());
+    if (state.tab === 'fav') { syncFavBar(); apply(); }
+  }
+  function updateFavModalBtn() {
+    var b = $('#favBtn');
+    if (!b) return;
+    var on = isFav(state.openId);
+    b.textContent = on ? '★ 已收藏' : '☆ 收藏';
+    b.classList.toggle('is-fav', on);
+  }
+  /* 收藏池: 快照按收藏时间倒序; 已在数据池里的条目用最新行覆盖(图片直链可能已刷新) */
+  function refreshFavPool() {
+    var live = {};
+    ['gal', 'video', 'vibe', 'h3'].forEach(function (t) {
+      (state[t] || []).forEach(function (p) { live[p.id] = p; });
+    });
+    state.fav = favList().map(function (s) {
+      var p = live[s.id];
+      return p ? snapshotOf(p, s.favAt) : s;
+    });
+  }
+  function syncFavBar() {
+    var bar = $('#favBar');
+    if (!bar) return;
+    var show = state.tab === 'fav';
+    bar.hidden = !show;
+    if (!show) return;
+    var fm = loadFavs(), ni = 0, nv = 0;
+    Object.keys(fm).forEach(function (k) { if (fm[k].kind === 'video') nv++; else ni++; });
+    var box = $('#favKindGroup');
+    if (!box) return;
+    box.innerHTML =
+      '<button data-favkind="image"' + (state.favKind === 'image' ? ' class="active"' : '') + '>🖼 图片 ' + ni + '</button>' +
+      '<button data-favkind="video"' + (state.favKind === 'video' ? ' class="active"' : '') + '>▶ 视频 ' + nv + '</button>';
   }
 
   /* 图片地址处理分三层:
@@ -438,6 +543,8 @@
      这里在界面上折叠成一个「KOOK」芯片，点进去再用子筛选只看某个栏目。 */
   var KOOK_GROUP = 'kook';
   function isKookKey(k) { return /^kook-/.test(String(k || '')); }
+  /* 即梦(jimeng-*): 独立数据源, 未登录公开探索页抓的图文作品。 */
+  function isJimengKey(k) { return /^jimeng-/.test(String(k || '')); }
   function kookKeys() {
     var cats = (state.manifest && state.manifest.galCats) || {};
     return Object.keys(cats).filter(isKookKey);
@@ -543,6 +650,13 @@
     'GPT Image': 'GPT 系列全部合并在这里（GPT Image / 2 / 2.5 / 2.6 / GPT-6 Astra）'
   };
   function buildCategories() {
+    // 收藏库没有分类芯片, 只有「图片 / 视频」切换栏
+    if (state.tab === 'fav') {
+      $('#categoriesScroll').innerHTML = '';
+      syncFavBar();
+      return;
+    }
+    syncFavBar();
     var src = catMap();
     var cnt = (state.manifest && state.manifest.catCounts[state.tab]) || {};
     var keys = Object.keys(src);
@@ -573,9 +687,10 @@
       // 「综合精选」第一；其后人像组(写真→人物→动漫)连续排列；再是最新收录；其余按条数降序。
       function rank(c) {
         if (c.key === '综合精选' || c.label === '综合精选') return 0;
-        if (isPortrait(c)) return 1;
-        if (isNewCat(c.key)) return 2;
-        return 3;
+        if (isJimengKey(c.key)) return 1;
+        if (isPortrait(c)) return 2;
+        if (isNewCat(c.key)) return 3;
+        return 4;
       }
       var d = rank(a) - rank(b);
       if (d) return d;
@@ -584,9 +699,13 @@
     });
 
     var html = '<button class="chip active" data-cat="">全部<span class="cnt">' + fmtNum(total) + '</span></button>';
-    var newLabelDone = false, portraitLabelDone = false;
+    var newLabelDone = false, portraitLabelDone = false, jimengLabelDone = false;
     items.forEach(function (c) {
       var isNew = isNewCat(c.key);
+      if (isJimengKey(c.key) && !jimengLabelDone) {
+        html += '<span class="chip-group-label">✨ 即梦AI</span>';
+        jimengLabelDone = true;
+      }
       if (isPortrait(c) && !portraitLabelDone) {
         html += '<span class="chip-group-label">👤 人像</span>';
         portraitLabelDone = true;
@@ -702,7 +821,27 @@
   }
 
   /* ---------- 过滤 ---------- */
+  /* 收藏库视图: 只按 图片/视频 + 搜索词筛, 排序默认按收藏时间倒序 */
+  function applyFav() {
+    refreshFavPool();
+    var q = state.q.trim().toLowerCase();
+    var qs = q ? q.split(/\s+/).filter(Boolean) : [];
+    var list = state.fav.filter(function (p) {
+      if (p.kind !== state.favKind) return false;
+      if (!qs.length) return true;
+      var hay = (p.title + ' ' + p.body + ' ' + (p.catLabel || '') + ' ' +
+        (p.desc || '') + ' ' + (p.model || '')).toLowerCase();
+      for (var i = 0; i < qs.length; i++) if (hay.indexOf(qs[i]) === -1) return false;
+      return true;
+    });
+    if (state.sort === 'long') list.sort(function (a, b) { return b.chars - a.chars; });
+    else if (state.sort === 'short') list.sort(function (a, b) { return a.chars - b.chars; });
+    else if (state.sort === 'default') list.sort(function (a, b) { return (a.favAt || 0) - (b.favAt || 0); });
+    state.list = list;
+    render();
+  }
   function apply() {
+    if (state.tab === 'fav') { applyFav(); return; }
     var q = state.q.trim().toLowerCase();
     // 多词搜索按"空格分词、全部命中"处理（原来整串匹配，"女性 肖像"这种会 0 条）
     var qs = q ? q.split(/\s+/).filter(Boolean) : [];
@@ -814,6 +953,9 @@
       inner +
       (isVid ? '<span class="play-btn"></span>' : '') +
       (isVid && !p.silent ? '<span class="audio-badge" title="这条带原声">🔊</span>' : '') +
+      (p.kind === 'text' ? '' :
+        '<button class="fav-btn' + (isFav(p.id) ? ' is-fav' : '') + '" type="button" data-fav="' + esc(p.id) + '" ' +
+        'title="' + (isFav(p.id) ? '取消收藏' : '收藏') + '" aria-label="收藏">' + (isFav(p.id) ? '★' : '☆') + '</button>') +
       '<button class="report-flag" type="button" data-report="' + esc(p.id) + '" ' +
         'title="举报 / 纠错" aria-label="举报这张图">' +
         '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" stroke="none" aria-hidden="true">' +
@@ -858,7 +1000,11 @@
     } else {
       empty.style.display = '';
       // 分类/搜索的数据可能还在后面的分片里 —— 说清楚"在加载", 别让用户以为分类是空的
-      empty.innerHTML = stillLoading
+      empty.innerHTML = state.tab === 'fav'
+        ? (state.q.trim()
+          ? '<strong>收藏里没有匹配的条目</strong>换个关键词试试'
+          : '<strong>这里还没有收藏</strong>去灵感画廊 / 视频页签，点卡片左上角的 ☆ 就能收藏；收藏保存在本机浏览器')
+        : stillLoading
         ? '<strong>正在加载该分类…</strong>数据还在后面的分片里，拉到就自动显示，稍等一下'
         : '<strong>没有匹配的提示词</strong>换个关键词或分类试试';
     }
@@ -880,12 +1026,15 @@
     $('#resultCount').textContent = '（' + state.list.length + ' 条' + tail +
       (stillLoading ? '，加载中…' : '') + '）';
     var active = $('#categoriesScroll .chip.active');
-    var label = state.cat === PORTRAIT_ALL ? PORTRAIT_ALL_LABEL
+    var label = state.tab === 'fav' ? ('我的收藏 · ' + (state.favKind === 'video' ? '视频' : '图片'))
+      : state.cat === PORTRAIT_ALL ? PORTRAIT_ALL_LABEL
       : state.cat === KOOK_GROUP ? ('KOOK' + (state.kookSub ? ' · ' + kookLabel(state.kookSub) : ''))
       : (active ? active.textContent.replace(/[\d.]+[wk]?$/, '').trim() : '全部');
     $('#listTitle').firstChild.nodeValue = state.q ? '搜索“' + state.q + '”' : label;
     var gLabel = state.gender === 'F' ? '♀ 女性' : (state.gender === 'M' ? '♂ 男性' : '');
-    var hintText = state.onlyRefs
+    var hintText = state.tab === 'fav'
+      ? '收藏保存在本机浏览器 · 点卡片左上角 ★ 取消收藏 · 图片 / 视频分开查看'
+      : state.onlyRefs
       ? '只看带风格参考图的图片条目（点开卡片可看参考图）'
       : (state.tab === 'gal' && state.cat === KOOK_GROUP
         ? 'KOOK 站的两个栏目都在这（瑶光 / 如梦似幻），点上方「栏目」可以只看其中一个'
@@ -940,7 +1089,8 @@
     var p = (id && typeof id === 'object') ? id
       : pool().filter(function (x) { return x.id === id; })[0];
     if (!p) return;
-    state.openId = id;
+    modalItem = p;
+    state.openId = p.id;
     stopAutoplay();          // 弹窗里要放原声, 先把网格里的静音循环停掉
 
     $('#modalHead').style.background = grad(p.id);
@@ -1066,6 +1216,12 @@
     // 站内不展示任何来源信息，也不出现任何登录/解锁提示
     $('#mSrc').innerHTML = '';
     $('#copyHint').textContent = '';
+    // 收藏按钮: 文本条目不参与收藏(收藏库只分图片/视频)
+    var fbtn = $('#favBtn');
+    if (fbtn) {
+      fbtn.style.display = p.kind === 'text' ? 'none' : '';
+      updateFavModalBtn();
+    }
     $('#modalMask').classList.add('open');
     document.body.style.overflow = 'hidden';
   }
@@ -1160,6 +1316,9 @@
      「开放精选」(oi_*) 排在最前 => 优先展示；后面跟原有分片。 */
   function shards(tab) {
     var m = state.manifest, out = [], i;
+    /* 即梦(jimeng-*) 独立分片: 排在前面, 点进去即可看到。 */
+    var nj = (tab === 'gal' ? m.chunks['jimeng_gal'] : 0) || 0;
+    for (i = 0; i < nj; i++) out.push({ f: 'jimeng_gal_' + i, k: tab });
     /* 最新收录（KOOK 三个分类）排在最前：首片就是最新的一批，
        默认「最新在前」排序一进站就能看到，不必等用户翻到最后几片。 */
     var nk = (tab === 'gal' ? m.chunks['kook_image'] : 0) || 0;
@@ -1354,6 +1513,7 @@
     if (cat === 'GPT Image') return /^(oi_gal_|wf_image_|kook_image_)/.test(fname);
     // KOOK（瑶光 / 如梦似幻，含折叠后的组）只落在 kook_image_* 分片
     if (cat === KOOK_GROUP || isKookKey(cat)) return /^kook_image_/.test(fname);
+    if (isJimengKey(cat)) return /^jimeng_gal_/.test(fname);
     if (/^oi-/.test(cat)) return /^oi_gal_/.test(fname);
     if (/^wf-/.test(cat)) return /^wf_image_/.test(fname);
     if (/^kook-/.test(cat)) return /^kook_image_/.test(fname);
@@ -1528,7 +1688,7 @@
 
   // 图片提示词页已下线(2026-10-13): 看图片请去「灵感画廊」。这里保留白名单,
   // 旧链接 (?tab=image) 会自动落回灵感画廊。
-  var TABS = ['gal', 'video', 'h3', 'text', 'vibe'];
+  var TABS = ['gal', 'video', 'h3', 'text', 'vibe', 'fav'];
 
   function tabFromUrl() {
     var t = '';
@@ -1553,17 +1713,26 @@
     state.cat = ''; state.page = 1; state.q = ''; state.lang = ''; state.sort = 'newest';
     state.onlyRefs = false; state.gender = ''; state.kookSub = '';
     if ($('#refGroup')) $('#refGroup').querySelector('button').classList.remove('active');
-    syncGenderBar(); syncKookBar();
+    syncGenderBar(); syncKookBar(); syncFavBar();
     $('#searchInput').value = '';
-    $('#langGroup').style.display = (tab === 'gal' || tab === 'vibe' || tab === 'h3') ? 'none' : '';
-    // 只有视频/Vibe 页有视频卡片, 自动播放开关就在那儿出现
-    if ($('#autoplayGroup')) $('#autoplayGroup').style.display = (tab === 'video' || tab === 'vibe' || tab === 'h3') ? '' : 'none';
+    $('#langGroup').style.display = (tab === 'gal' || tab === 'vibe' || tab === 'h3' || tab === 'fav') ? 'none' : '';
+    // 收藏库只按图片/视频分, 「只看风格参考」不适用
+    if ($('#refGroup')) $('#refGroup').style.display = tab === 'fav' ? 'none' : '';
+    // 只有视频/Vibe/收藏页有视频卡片, 自动播放开关就在那儿出现
+    if ($('#autoplayGroup')) $('#autoplayGroup').style.display = (tab === 'video' || tab === 'vibe' || tab === 'h3' || tab === 'fav') ? '' : 'none';
     $('#langGroup').querySelectorAll('button').forEach(function (x, i) { x.classList.toggle('active', i === 0); });
     $('#sortGroup').querySelectorAll('button').forEach(function (x, i) { x.classList.toggle('active', i === 0); });
     document.querySelectorAll('.tab').forEach(function (b) {
       b.classList.toggle('active', b.dataset.tab === tab);
     });
     syncUrl(tab);
+    // 收藏库: 数据全在本机, 不用拉分片
+    if (tab === 'fav') {
+      refreshFavPool();
+      buildCategories();
+      apply();
+      return;
+    }
     var afterTab = function () {
       buildCategories();
       // 视频页默认「全部」: 开放精选(oi)视频排在最前; 旧的热门静音视频在分类里按需筛
@@ -1660,6 +1829,14 @@
   function bind() {
     var grid = $('#grid');
     grid.addEventListener('click', function (e) {
+      // 收藏星标：优先处理，且不能冒泡成「打开卡片」
+      var fv = e.target.closest('.fav-btn');
+      if (fv) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleFav(fv.dataset.fav);
+        return;
+      }
       // 举报旗标：优先处理，且不能冒泡成「打开卡片」
       var rf = e.target.closest('.report-flag');
       if (rf) {
@@ -1813,6 +1990,18 @@
       state.gender = b.dataset.gender; state.page = 1; apply();
     });
 
+    // 收藏库: 图片 / 视频 切换
+    if ($('#favKindGroup')) $('#favKindGroup').addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-favkind]');
+      if (!b) return;
+      state.favKind = b.dataset.favkind; state.page = 1;
+      syncFavBar(); apply();
+    });
+    // 弹窗里的收藏按钮
+    if ($('#favBtn')) $('#favBtn').addEventListener('click', function () {
+      if (state.openId) toggleFav(state.openId);
+    });
+
     // 「只看风格参考」：打开时若池子还没拉全，先把分片拉完再筛，避免结果不全
     // 「自动播放」开关：默认开，关过一次就记住
     $('#autoplayBtn').addEventListener('click', function () { setAutoplay(!autoplayOn); });
@@ -1884,6 +2073,8 @@
 
     $('#logoLink').addEventListener('click', function (e) {
       e.preventDefault();
+      // 在收藏库里点 logo = 回首页(灵感画廊)
+      if (state.tab === 'fav') { switchTab('gal'); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
       state.cat = ''; state.q = ''; state.lang = ''; state.page = 1; state.sort = 'newest';
       state.onlyRefs = false; state.gender = ''; state.kookSub = '';
       if ($('#refGroup')) $('#refGroup').querySelector('button').classList.remove('active');
@@ -1913,6 +2104,7 @@
     $('#tabVideoCnt').textContent = fmtNum(m.videoCount || 0);
     if ($('#tabVibeCnt')) $('#tabVibeCnt').textContent = fmtNum(m.vibeCount || 0);
     if ($('#tabH3Cnt')) $('#tabH3Cnt').textContent = fmtNum(m.h3Count || 0);
+    if ($('#tabFavCnt')) $('#tabFavCnt').textContent = fmtNum(favCount());
     $('#heroZh').textContent = fmtNum(z.text + z.video + (m.galCount || 0));
     if ($('#heroGal')) $('#heroGal').textContent = fmtNum(galAll);
     $('#heroVideo').textContent = fmtNum(m.videoCount || 0);
@@ -2044,8 +2236,9 @@
       state.manifest = m;
       var start = tabFromUrl() || 'gal';
       state.tab = start;
-      $('#langGroup').style.display = (start === 'gal' || start === 'vibe' || start === 'h3') ? 'none' : '';
-      if ($('#autoplayGroup')) $('#autoplayGroup').style.display = (start === 'video' || start === 'vibe' || start === 'h3') ? '' : 'none';
+      $('#langGroup').style.display = (start === 'gal' || start === 'vibe' || start === 'h3' || start === 'fav') ? 'none' : '';
+      if ($('#refGroup')) $('#refGroup').style.display = start === 'fav' ? 'none' : '';
+      if ($('#autoplayGroup')) $('#autoplayGroup').style.display = (start === 'video' || start === 'vibe' || start === 'h3' || start === 'fav') ? '' : 'none';
       document.querySelectorAll('.tab').forEach(function (b) {
         b.classList.toggle('active', b.dataset.tab === start);
       });

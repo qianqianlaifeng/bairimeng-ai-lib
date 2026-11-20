@@ -1,0 +1,128 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+把 .cache/jimeng_raw.json 转成前端 gal 分片格式(jimeng_gal_*.json)并并入 manifest。
+
+行格式与 expandGal 一致: [id, title, body, cat, desc, cover, refs, time]
+  - body  = 完整提示词
+  - cat   = jimeng-<分类名>(如 jimeng-平面设计)
+  - desc  = 作者名
+  - time  = 发布时间 YYYY-MM-DD(用于「日期最新」排序)
+  - cover = 即梦签名原图直链
+
+分类作为独立分组显示在分类栏(带 🆕 标记), 不混入原有中文分类。
+可重复运行(幂等): 每轮重建 jimeng 分片并同步 manifest 计数。
+"""
+import os
+import re
+import json
+import glob
+import hashlib
+from datetime import datetime, timezone
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+DATA = os.environ.get("GAL_OUTDIR") or os.path.join(ROOT, "data")
+MANI = os.path.join(DATA, "manifest.json")
+RAW = os.path.join(ROOT, ".cache", "jimeng_raw.json")
+CHUNK = 600
+
+CAT_ICON = {
+    "jimeng-平面设计": ["即梦·平面设计", "🆕"],
+    "jimeng-电商": ["即梦·电商", "🛍️"],
+    "jimeng-动画动漫": ["即梦·动漫", "🎬"],
+    "jimeng-影视作品": ["即梦·影视", "🎞️"],
+}
+
+
+def ts_to_date(ts):
+    try:
+        ts = int(ts)
+        if ts <= 0:
+            return ""
+        return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+    except Exception:
+        return ""
+
+
+def cat_icon(cat):
+    if cat in CAT_ICON:
+        return CAT_ICON[cat]
+    # 兜底: jimeng-XXX -> 即梦·XXX
+    name = cat.split("-", 1)[-1] if "-" in cat else cat
+    return ["即梦·" + name, "🆕"]
+
+
+def main():
+    if not os.path.exists(RAW):
+        print("无 jimeng_raw.json, 请先运行 fetch_jimeng.py")
+        return
+    rows = json.load(open(RAW, encoding="utf-8"))
+    if not rows:
+        print("即梦数据为空, 跳过")
+        return
+
+    # 转为 gal 行格式
+    gal = []
+    for r in rows:
+        cat = r.get("cat") or "jimeng-其他"
+        prompt = r.get("prompt") or r.get("title") or ""
+        title = r.get("title") or prompt[:36]
+        desc = r.get("author") or ""
+        cover = r.get("cover") or ""
+        if not cover:
+            continue
+        gal.append([
+            r.get("id") or ("jm-" + hashlib.md5((title + cover).encode()).hexdigest()[:12]),
+            title, prompt, cat, desc, cover, [], ts_to_date(r.get("ctime"))
+        ])
+    if not gal:
+        print("无有效行, 跳过")
+        return
+
+    # 按时间倒序(新在前)
+    gal.sort(key=lambda x: x[7] or "", reverse=True)
+
+    # 清理上一轮 jimeng 分片
+    for f in glob.glob(os.path.join(DATA, "jimeng_gal_*.json")):
+        os.remove(f)
+    chunks = [gal[i:i + CHUNK] for i in range(0, len(gal), CHUNK)]
+    for i, ch in enumerate(chunks):
+        with open(os.path.join(DATA, "jimeng_gal_%d.json" % i), "w", encoding="utf-8") as f:
+            json.dump(ch, f, ensure_ascii=False, separators=(",", ":"))
+
+    # ---- 更新 manifest ----
+    m = json.load(open(MANI, encoding="utf-8"))
+
+    # 先扣掉上一轮 jimeng 计数(用 jimeng 分类键识别), 再加本轮
+    gc = m.setdefault("catCounts", {}).setdefault("gal", {})
+    old_keys = [k for k in gc if str(k).startswith("jimeng-")]
+    old_total = sum(gc[k] for k in old_keys)
+    for k in old_keys:
+        del gc[k]
+    m["galCount"] = max(0, (m.get("galCount") or 0) - old_total)
+
+    gcat = m.setdefault("galCats", {})
+    for k in list(gcat):
+        if str(k).startswith("jimeng-"):
+            del gcat[k]
+
+    from collections import Counter
+    cc = Counter(r[3] for r in gal)
+    for cat, n in cc.items():
+        gcat[cat] = cat_icon(cat)
+        gc[cat] = n
+
+    m["galCount"] = (m.get("galCount") or 0) + len(gal)
+    ch_map = m.setdefault("chunks", {})
+    ch_map["jimeng_gal"] = len(chunks)
+    m.setdefault("sources", {})["jimeng"] = ["即梦AI 创作社区", "https://jimeng.jianying.com/ai-tool/explore"]
+    m["jimengGalCount"] = len(gal)
+
+    json.dump(m, open(MANI, "w", encoding="utf-8"), ensure_ascii=False)
+    print("jimeng 分片 %d 个 / %d 条, 分类: %s" % (len(chunks), len(gal), dict(cc)))
+    print("galCount=%d (扣旧%d 加新%d)" % (m["galCount"], old_total, len(gal)))
+
+
+if __name__ == "__main__":
+    main()

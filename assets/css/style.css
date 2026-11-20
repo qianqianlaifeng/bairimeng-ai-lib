@@ -805,3 +805,31 @@ body.image-only .prompt-card .card-body { display: none !important; }
 body.image-only .grid-container { column-gap: 10px; }
 body.image-only .grid-container .prompt-card { margin-bottom: 10px; }
 body.image-only .prompt-card .card-cover { border-radius: 10px; }
+
+/* ---------- 收藏 ---------- */
+/* 卡片左上角收藏星标(右上角是举报旗标, 两者镜像); 已收藏常显金星 */
+.card-cover .fav-btn {
+  position: absolute; top: 8px; left: 8px; z-index: 4;
+  width: 26px; height: 26px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 14px; line-height: 1;
+  color: #fff; background: rgba(20, 20, 26, .38);
+  border: 1px solid rgba(255, 255, 255, .35);
+  opacity: 0; transform: scale(.9); transition: opacity .16s, transform .16s, background .16s;
+  cursor: pointer; backdrop-filter: blur(4px);
+}
+.prompt-card:hover .card-cover .fav-btn { opacity: .82; transform: none; }
+.card-cover .fav-btn:hover { opacity: 1; background: var(--accent); border-color: var(--accent); }
+.card-cover .fav-btn:active { transform: scale(.94); }
+.card-cover .fav-btn.is-fav {
+  opacity: 1; transform: none;
+  color: #ffd76a; background: rgba(20, 20, 26, .55); border-color: #ffd76a;
+}
+@media (hover: none) {
+  .card-cover .fav-btn { opacity: .7; }
+  .card-cover .fav-btn.is-fav { opacity: 1; }
+}
+html.is-dark .card-cover .fav-btn { background: rgba(0, 0, 0, .45); }
+html.is-dark .card-cover .fav-btn.is-fav { background: rgba(0, 0, 0, .6); }
+/* 弹窗里的收藏按钮: 已收藏给金色描边 */
+#favBtn.is-fav { color: #e8b93c; border-color: #e8b93c; }

@@ -10,3 +10,5 @@ _backup_pre_portrait_v4/
 _backup_pre_reorg_v6/
 _backup_pre_scenery_*/
 tools/_shots/
+.pydeps/
+_backup_pre_jimeng_*/

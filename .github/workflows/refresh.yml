@@ -92,6 +92,17 @@ jobs:
         run: |
           python tools/fetch_h3.py
           python tools/build_h3.py
+      - name: 刷新即梦探索页图片(独立分片, 签名直链必须每日重抓)
+        # 即梦封面是带签名的临时直链, 不重抓几天后就 403。探索页公开无需 Cookie,
+        # 用 Playwright + 运行器预装的 Chrome 拦截 get_explore 接口拿数据。
+        # 失败不阻塞每日刷新: 旧分片仍在, reorg 会从分片兜底恢复分类键。
+        continue-on-error: true
+        env:
+          GAL_OUTDIR: ${{ github.workspace }}/data
+        run: |
+          pip install --quiet playwright
+          python tools/fetch_jimeng.py
+          python tools/build_jimeng.py
       - name: 同步最新收录三类作品(新作品 + 完整提示词)
         # 这三类的全文要走登录态接口, Cookie 存在仓库 Secret(KOOK_COOKIE)。
         # kook_auth 会自己判断过期并用 KOOK_USER/KOOK_PASS 重新登录，无需人工续期。

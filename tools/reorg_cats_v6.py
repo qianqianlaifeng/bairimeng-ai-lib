@@ -240,7 +240,7 @@ def slug(cat):
 
 def shard_files():
     files = []
-    for prefix in ('kook_image', 'wf_image', 'oi_gal', 'gal'):
+    for prefix in ('jimeng_gal', 'kook_image', 'wf_image', 'oi_gal', 'gal'):
         i = 0
         while True:
             fp = os.path.join(DATA, '%s_%d.json' % (prefix, i))
@@ -252,7 +252,7 @@ def shard_files():
 
 
 def load_shards():
-    """必须按 app.js shards('gal') 的顺序：kook_image -> wf_image -> oi_gal -> gal。"""
+    """必须按 app.js shards('gal') 的顺序：jimeng_gal -> kook_image -> wf_image -> oi_gal -> gal。"""
     out = []
     for fp in shard_files():
         out.extend(json.load(open(fp, encoding='utf-8')))
@@ -387,9 +387,16 @@ def main():
     for k in list(cats_meta.keys()):
         if cnt.get(k, 0) <= 0:
             del cats_meta[k]
+    def _fallback_label(k):
+        ks = str(k)
+        if ks.startswith('jimeng-'):
+            name = ks.split('-', 1)[-1]
+            icon = {'平面设计': '🆕', '电商': '🛍️', '动画动漫': '🎬', '影视作品': '🎞️'}.get(name, '✨')
+            return ['即梦·' + name, icon]
+        return [KOOK_LABELS.get(k, k), '🎨' if is_kook_key(k) else '✨']
     for k in cnt:
         if k not in cats_meta:
-            cats_meta[k] = [KOOK_LABELS.get(k, k), '🎨' if is_kook_key(k) else '✨']
+            cats_meta[k] = _fallback_label(k)
     man['galCats'] = cats_meta
     man.setdefault('catCounts', {})['gal'] = dict(cnt)
     man['galCatPack'] = pack

@@ -16,7 +16,7 @@
     document.documentElement.classList.toggle('is-dark', t !== 'light');
   })();
 </script>
-<link rel="stylesheet" href="assets/css/style.css?v=41dedfa2" />
+<link rel="stylesheet" href="assets/css/style.css?v=db6d175e" />
 </head>
 <body>
 
@@ -60,6 +60,7 @@
     <button class="tab" data-tab="h3" title="开源 MiniMax H3 视频案例与提示词">开源 MiniMax H3 <i id="tabH3Cnt">—</i></button>
     <button class="tab" data-tab="text">文本提示词 <i id="tabTextCnt">—</i></button>
     <button class="tab" data-tab="vibe" title="Vibe Coding 作品">Vibe Coding <i id="tabVibeCnt">—</i></button>
+    <button class="tab" data-tab="fav" title="收藏库：图片和视频分开查看，保存在本机浏览器">⭐ 我的收藏 <i id="tabFavCnt">0</i></button>
     <div class="tabbar-spacer"></div>
     <div class="seg" id="langGroup">
       <button data-lang="" class="active">全部</button>
@@ -97,6 +98,11 @@
       <span class="gender-bar-label">🎨 栏目</span>
       <div class="seg" id="kookGroup"></div>
       <span class="gender-bar-hint">瑶光 / 如梦似幻 都合并在「KOOK」里，点一下只看其中一个</span>
+    </div>
+    <div class="gender-bar" id="favBar" hidden>
+      <span class="gender-bar-label">⭐ 收藏</span>
+      <div class="seg" id="favKindGroup"></div>
+      <span class="gender-bar-hint">收藏保存在本机浏览器 · 点卡片左上角 ☆ 收藏、★ 取消收藏</span>
     </div>
   </div>
 </div>
@@ -158,6 +164,7 @@
       <div id="mBody"></div>
       <div class="copy-row">
         <button class="btn btn-primary" id="copyBtn">复制全文</button>
+        <button class="btn btn-ghost" id="favBtn" type="button" title="收藏到「我的收藏」，保存在本机浏览器">☆ 收藏</button>
         <span class="copy-hint" id="copyHint"></span>
       </div>
       <div class="src-note" id="mSrc"></div>
@@ -262,9 +269,9 @@
 
 <div id="toast" style="position:fixed;left:50%;bottom:38px;transform:translate(-50%,20px);background:rgba(22,24,29,.93);color:#fff;padding:10px 20px;border-radius:999px;font-size:13px;opacity:0;pointer-events:none;transition:.25s;z-index:999"></div>
 
-<script src="assets/js/config.js?v=2087c01b"></script>
+<script src="assets/js/config.js?v=82f7c729"></script>
 <script src="assets/js/theme.js?v=bb265089"></script>
-<script src="assets/js/app.js?v=25c07596"></script>
+<script src="assets/js/app.js?v=4bfac057"></script>
 <script src="assets/js/settings.js?v=096d6941"></script>
 </body>
 </html>
