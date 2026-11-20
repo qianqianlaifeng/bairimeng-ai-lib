@@ -54,7 +54,7 @@ ANIME_STYLE = ['动漫','动画','二次元','插画','漫画','卡通','手绘'
     '恐怖娃娃','公仔','玩偶','人偶','毛毡','黏土','粘土','blender','octane','C4D','虚幻引擎','虚幻','厚涂','板绘',
     '数字插画','数字艺术','digital art','概念图','游戏CG','动漫风格','漫画风格','插画风格','卡通风格']
 # 强写实
-REAL_STRONG = ['photorealistic','ultra photorealistic','hyperrealistic','photograph','realistic','写真','真人照片',
+REAL_STRONG = ['photorealistic','ultra photorealistic','hyperrealistic','photograph','realistic','照片','写真','真人照片',
     '真人实拍','实拍','纪实','单反','相机拍摄','镜头','85mm','50mm','f/1.4','光圈','景深','皮肤毛孔','真实皮肤',
     'shot on','canon','sony a7','nikon','vogue','时尚大片','街拍','新闻摄影','战地摄影',' documentary','人像摄影',
     '肖像摄影','皮肤质感','真实毛发','发丝分明','cinematic photograph','电影剧照']
@@ -87,9 +87,47 @@ def is_person(text):
         t2 = t
     return bool(EN_PERSON_RE.search(t2) or CN_PERSON_RE.search(t2))
 
+# ---------- v3: 标题主语级"强非人物"判定 ----------
+# 标题开头的主语是这些东西时, 即便正文有"肖像/脸/女人"也判非人物
+SUBJECT_NONPERSON = [
+    # 植物/树
+    (r'^(一棵|一株|这棵|一棵棵)?[^，。]{0,8}(树|橄榄树|橡树|樱花树|松树|柳树|盆景|花|玫瑰|荷花|花朵|蘑菇)', '植物'),
+    # 动物 (标题主语, 含"肖像/油画")
+    (r'^(一只|一头|这条|这幅|抽象画|色彩)?[^，。]{0,8}(老虎|狮子|猫|狗|犬|松鼠|马|鸟|鹰|天鹅|狐狸|熊猫|企鹅|鲸|章鱼|蝴蝶|龙虾|鸭子|猴|蛇|鼠|刺猬|考拉|袋鼠|骆驼|长颈鹿)', '动物'),
+    # 食物/餐饮
+    (r'^(一道|一份|一碗|一盘|场景[:：]|家常菜|美食|食物|自制|食谱)?[^，。]{0,10}(菜|食物|餐|美食|料理|甜点|蛋糕|披萨|汉堡|寿司|面条|早餐|午餐|晚餐|食材|烹饪|烘焙)', '美食'),
+    # 化妆品/产品静物
+    (r'^(一个|一款|豪华的|一套)?[^，。]{0,10}(化妆品|口红|腮红|香水|护肤|美容|包装|粉底|唇膏|精华|面霜|产品展示|平面展示)', '产品'),
+    # 大脑/器官/解剖 (允许出现在标题前段任意位置, 因为是强主体特征)
+    (r'^.{0,26}(大脑|脑部|心脏|器官|解剖图|骨骼|细胞|神经元)', '医学科普'),
+    # 木乃伊/怪物/玩偶 (非人实体)
+    (r'^(20世纪|一个|一只)?[^，。]{0,10}(木乃伊|怪物|怪兽|恶魔|丧尸|僵尸|骷髅头|稻草人|机器人|雕像|假人模特|人体模型)', '非人实体'),
+]
+def subject_nonperson(title, prompt=''):
+    t = (title or '').strip()
+    if not t: return None
+    head = t[:26]
+    for pat, cat in SUBJECT_NONPERSON:
+        if re.search(pat, head):
+            return cat
+    # 标题主语看起来是场景(以"场景/一名..."开头)但正文前 120 字是强美食/产品描述:
+    lead = (prompt or '')[:120]
+    food = re.search(r'(家常菜|这道菜|丰盛的食材|开胃|烧烤痕迹|鲜嫩的肉|烹饪|食谱|美食摄影)', lead)
+    if food and not re.search(r'女孩|男孩|女人|男人|模特|woman|man|girl|boy', head, re.I):
+        return '美食'
+    return None
+
 def classify(title, prompt):
     main = strip_negative(prompt)
     text = (title or '') + ' ' + main
+    # v3 前置: 标题主语就是非人物 -> 直接归位, 不看正文的人物词
+    subj = subject_nonperson(title, main)
+    if subj:
+        return {
+            '植物': '风景自然', '动物': '动物自然', '美食': '日常生活',
+            '产品': '产品电商', '医学科普': '综合精选', '非人实体': '插画动漫'
+        }[subj], '标题主语非人物:' + subj
+
     has_person = is_person(text)
 
     protect = has(text, PROTECT)
