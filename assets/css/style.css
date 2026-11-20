@@ -608,7 +608,24 @@ html.is-dark .chip.is-new { background: #0b0904; }
 html.is-dark .chip.active,
 html.is-dark .chip.is-new.active { background: var(--accent); border-color: var(--accent); color: #1a1500; font-weight: 600; }
 html.is-dark .btn-primary { color: #1a1500; }
-html.is-dark .tab.active { color: #fff5d6; }
+/* 顶部页签 / 筛选胶囊 / 提示条：这几块原来只改了边框色，背景还是浅色，
+   配上暗色下的浅色文字就是"白底白字"看不见。统一改成金边黑底 + 金黄色文字。 */
+html.is-dark .tab {
+  background: #14120c; color: #e6be68;
+  border: 1px solid rgba(230, 190, 104, .32);
+}
+html.is-dark .tab:hover { background: #1f1a0e; color: var(--accent-2); }
+html.is-dark .tab.active {
+  background: linear-gradient(135deg, var(--accent-dark), #7c6212);
+  color: #17130a; border-color: var(--accent-dark); font-weight: 700;
+}
+html.is-dark .tab.active i { color: #17130a; }
+html.is-dark .seg { background: #14120c; border-color: rgba(230, 190, 104, .32); }
+html.is-dark .seg button { color: #d9c69a; }
+html.is-dark .seg button.active { background: var(--accent); color: #17130a; font-weight: 700; }
+html.is-dark .hint {
+  background: #14120c; border-color: rgba(230, 190, 104, .32); color: #d9c69a;
+}
 html.is-dark .hint.hint-warn { background: #382a17; border-color: #6b4b1d; color: #f0c987; }
 html.is-dark .card-cover { background: #060606; }
 html.is-dark .card-excerpt.full-prompt { background: #080706; }
