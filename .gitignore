@@ -6,3 +6,4 @@ tools/.token
 tools/.cache/
 __pycache__/
 _backup_pre_portrait/
+_backup_pre_portrait_v4/
