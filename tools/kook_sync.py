@@ -162,18 +162,28 @@ def fetch_full(iid):
     return None
 
 
+def hi_res(url):
+    """接口给的是 480px/q62 缩略图, 点开大图会糊。
+    去掉 imageMogr2 参数就是原图(长边 1920 左右, 体积也就 60~120KB), 直接用原图。"""
+    if not url:
+        return url
+    return url.split("?")[0]
+
+
 def fetch_cover(iid, url, dry=False):
     dst = os.path.join(MEDIA, iid + ".webp")
     if os.path.exists(dst) and os.path.getsize(dst) > 1024:
         return True
     if dry or not url:
         return False
-    st, body, _ = http(url, tries=2, timeout=40)
-    if st == 200 and len(body) > 1024:
-        os.makedirs(MEDIA, exist_ok=True)
-        with open(dst, "wb") as f:
-            f.write(body)
-        return True
+    # 先试原图, 失败再退回接口给的缩略图
+    for u in (hi_res(url), url):
+        st, body, _ = http(u, tries=2, timeout=40)
+        if st == 200 and len(body) > 1024:
+            os.makedirs(MEDIA, exist_ok=True)
+            with open(dst, "wb") as f:
+                f.write(body)
+            return True
     return False
 
 

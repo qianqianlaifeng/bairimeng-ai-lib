@@ -380,7 +380,8 @@
     return itemDate(p) || 1;
   }
   /* 最新收录的三个分类（KOOK 灵绘库） */
-  function isNewCat(key) { return /^kook-/.test(String(key || '')); }
+  // 最新收录（KOOK）：合并后 key 变成 "kook"（没有横杠），所以这里两个都要认
+  function isNewCat(key) { return /^kook(-|$)/.test(String(key || '')); }
   // Vibe Coding 行(14 字段): 尾缀 r[13]=media_type('image'/'video')决定渲染成图片卡还是视频卡
   function expandVibe(r) {
     var m = state.manifest;
@@ -518,6 +519,10 @@
     return out;
   }
 
+  var CHIP_TITLE = {
+    'kook': 'KOOK（原「瑶光 / 如梦似幻」两个栏目，已合并）',
+    'GPT Image': 'GPT 系列全部合并在这里（GPT Image / 2 / 2.5 / 2.6 / GPT-6 Astra）'
+  };
   function buildCategories() {
     var src = catMap();
     var cnt = (state.manifest && state.manifest.catCounts[state.tab]) || {};
@@ -564,7 +569,8 @@
         newLabelDone = true;
       }
       html += '<button class="chip' + (isNew ? ' is-new' : '') + (c.virtual ? ' is-virtual' : '') +
-        '" data-cat="' + esc(c.key) + '">' +
+        '" data-cat="' + esc(c.key) + '"' +
+        (CHIP_TITLE[c.key] ? ' title="' + esc(CHIP_TITLE[c.key]) + '"' : '') + '>' +
         c.icon + ' ' + esc(c.label) + '<span class="cnt">' + fmtNum(c.n) + '</span></button>';
     });
     var box = $('#categoriesScroll');
@@ -647,7 +653,10 @@
     var qs = q ? q.split(/\s+/).filter(Boolean) : [];
     var rep = loadReports();
     var recat = rep.recat;
+    var listSeen = {};
     var list = pool().filter(function (p) {
+      if (listSeen[p.id]) return false;   // 同一张图只出现一次
+      listSeen[p.id] = 1;
       // 本地举报：已隐藏的直接不显示
       if (isHiddenId(p.id)) return false;
       // 本地纠错：用户把这图转移到别的分类后，按"有效分类"判断
@@ -951,6 +960,7 @@
     } else if (p.cover) {
       media.innerHTML = '<img class="preview" src="' + esc(coverUrl(p.cover)) + '" ' +
         'data-orig="' + esc(coverUrl(p.cover)) + '" referrerpolicy="no-referrer" ' +
+        'title="点击在新窗口查看原图" ' +
         'onerror="window.__imgFail&&window.__imgFail(this)" />';
     } else {
       media.innerHTML = '';
@@ -1201,8 +1211,7 @@
       delete buf[k];
       if (rows && rows.length) {
         var d = list[k] || { k: tab };
-        Array.prototype.push.apply(state[tab], rows.map(EXPAND[d.k] || EXPAND[tab]));
-        grew = true;
+        if (mergeRows(tab, rows, d.k)) grew = true;
       }
       state.chunks[tab] = k + 1;
     }
@@ -1240,13 +1249,18 @@
   var packLoaded = {};
   // 分类首屏包的内存缓存: boot 后后台预热, 点分类时命中缓存零等待(消除 CDN 冷启动白屏)
   var catPackCache = {};
+  var seenIds = { gal: {}, text: {}, video: {}, vibe: {}, h3: {} };
+  function markSeen(tab, p) {
+    var ps = seenIds[tab] || (seenIds[tab] = {});
+    if (ps[p.id]) return false;
+    ps[p.id] = 1;
+    return true;
+  }
   function mergeRows(tab, rows, kind) {
-    var seen = {};
-    (state[tab] || []).forEach(function (p) { seen[p.id] = 1; });
     var add = [];
     rows.forEach(function (r) {
       var p = (EXPAND[kind] || EXPAND[tab])(r);
-      if (!seen[p.id]) { seen[p.id] = 1; add.push(p); }
+      if (markSeen(tab, p)) add.push(p);
     });
     if (add.length) Array.prototype.push.apply(state[tab], add);
     return add.length;
@@ -1274,6 +1288,8 @@
   function catShardMatch(fname, cat) {
     // GPT 系列在数据侧已合并成一个 "GPT Image" 分类，条目来自 oi / wf / kook 三个来源
     if (cat === 'GPT Image') return /^(oi_gal_|wf_image_|kook_image_)/.test(fname);
+    // KOOK（原瑶光 / 如梦似幻合并）只落在 kook_image_* 分片
+    if (cat === 'kook') return /^kook_image_/.test(fname);
     if (/^oi-/.test(cat)) return /^oi_gal_/.test(fname);
     if (/^wf-/.test(cat)) return /^wf_image_/.test(fname);
     if (/^kook-/.test(cat)) return /^kook_image_/.test(fname);
@@ -1335,7 +1351,7 @@
               var add = [];
               rows.forEach(function (r) {
                 var p = (EXPAND[dd.k] || EXPAND[tab])(r);
-                if (!seen[p.id]) { seen[p.id] = 1; add.push(p); }
+                if (!seen[p.id] && markSeen(tab, p)) { seen[p.id] = 1; add.push(p); }
               });
               if (add.length) {
                 Array.prototype.push.apply(state[tab], add);
@@ -1417,9 +1433,7 @@
       // 首屏包(cp_all)可能已经先到了: 不要覆盖, 只把新条目追加在后面
       var base = state[tab] || [];
       if (base.length) {
-        var seen = {};
-        base.forEach(function (p) { seen[p.id] = 1; });
-        fresh = fresh.filter(function (p) { return !seen[p.id]; });
+        fresh = fresh.filter(function (p) { return markSeen(tab, p); });
         state[tab] = base.concat(fresh);
       } else {
         state[tab] = fresh;
@@ -1629,6 +1643,11 @@
       if (v) { try { v.pause(); v.currentTime = 0; } catch (err) {} }
     });
 
+    // 点弹窗里的大图 -> 新窗口看原图（不拦截卡片/关闭按钮的点击）
+    if ($('#mMedia')) $('#mMedia').addEventListener('click', function (e) {
+      var img = e.target.closest('img.preview');
+      if (img && img.src) window.open(img.src, '_blank', 'noopener');
+    });
     $('#modalClose').addEventListener('click', closeModal);
     $('#modalMask').addEventListener('click', function (e) { if (e.target === $('#modalMask')) closeModal(); });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeModal(); });

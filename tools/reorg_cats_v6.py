@@ -47,6 +47,23 @@ GPT_KEYS = {
     'wf-m-gpt-6-astra', 'kook-gpt-image',
 }
 
+# ---------------- A2. KOOK 合并 ----------------
+# 最新收录里的「瑶光」「如梦似幻」本来是同一个站(KOOK)的两个栏目, 用户要求
+# 在分类栏统一显示 KOOK。合并后 key 仍以 kook- 开头, 所以还在「🆕 最新收录」组里。
+KOOK_CAT = 'kook'
+KOOK_LABEL = 'KOOK'
+KOOK_ICON = '🎨'
+KOOK_MERGE = {'kook-yaoguang', 'kook-rumengsihuan'}
+
+
+def is_kook_cat(k):
+    """KOOK 站的栏目（瑶光 / 如梦似幻 / 以后新开的）全部并进「KOOK」；
+    唯一例外是 kook-gpt-image，它属于 GPT 系列，要并进 GPT Image。"""
+    k = str(k or '').lower()
+    if k in ('kook', 'kook-gpt-image'):
+        return False
+    return k.startswith('kook-')
+
 # ---------------- B. 风格信号 ----------------
 # 二次元 / 插画 / 3D / 手办这一挂 -> 人像动漫
 ART_ANIME = re.compile(
@@ -189,6 +206,13 @@ def shard_files():
     return files
 
 
+def cnt_has_kook(rows):
+    for r in rows:
+        if len(r) > 3 and _s(r[3]) == KOOK_CAT:
+            return True
+    return False
+
+
 def is_portrait_like(r):
     """跨分类"这算不算人像"：人像三类全收；其他类看标题有没有明确人物主语。"""
     cat = _s(r[3])
@@ -213,6 +237,7 @@ def main():
     # ---------- A+B：改分片里的分类 ----------
     moved = Counter()
     gpt_n = 0
+    kook_n = 0
     for fp in files:
         d = json.load(open(fp, encoding='utf-8'))
         dirty = False
@@ -221,6 +246,11 @@ def main():
                 continue
             cat = _s(r[3])
             # 任何 GPT 系模型键都并进来（以后源站新增 "GPT Image 3" 之类也不会再拆开）
+            if is_kook_cat(cat):
+                r[3] = KOOK_CAT
+                kook_n += 1
+                dirty = True
+                continue
             if cat != GPT_CAT and (cat in GPT_KEYS or 'gpt' in cat.lower()):
                 r[3] = GPT_CAT
                 gpt_n += 1
@@ -239,6 +269,7 @@ def main():
                 json.dump(d, fh, ensure_ascii=False, separators=(',', ':'))
 
     print('GPT 系列合并 -> %s : %d 条' % (GPT_CAT, gpt_n))
+    print('KOOK 分类合并 -> %s : %d 条' % (KOOK_LABEL, kook_n))
     print('人像类改判:', sum(moved.values()), '条')
     for (a, b, why), n in moved.most_common():
         print('  %5d  %s -> %s  (%s)' % (n, a, b, why))
@@ -304,6 +335,11 @@ def main():
         if k in GPT_KEYS or 'gpt' in k.lower():
             del cats_meta[k]
     cats_meta[GPT_CAT] = [GPT_CAT, GPT_ICON]
+    for k in list(cats_meta.keys()):
+        if is_kook_cat(k):
+            del cats_meta[k]
+    if cnt_has_kook(rows):
+        cats_meta[KOOK_CAT] = [KOOK_LABEL, KOOK_ICON]
     man['galCats'] = cats_meta
 
     cnt = Counter(_s(r[3]) for r in rows if len(r) > 3)

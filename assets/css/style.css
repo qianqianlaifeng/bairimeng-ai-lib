@@ -477,9 +477,11 @@ input { font-family: inherit; }
 
 /* 预览图 */
 .preview {
-  width: 100%; max-height: 42vh; object-fit: contain; border-radius: 10px;
+  width: 100%; max-height: 58vh; object-fit: contain; border-radius: 10px;
   background: #0f1015; display: block;
 }
+/* 点大图 = 新窗口看原图（封面已经是原图，清晰度足够放大看细节） */
+.preview { cursor: zoom-in; }
 .preview-fail {
   padding: 26px; text-align: center; color: var(--muted); font-size: 12.5px;
   background: #f8f9fc; border: 1px dashed var(--line); border-radius: 10px;
