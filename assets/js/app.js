@@ -422,14 +422,33 @@
   var EXPAND = { text: expandText, image: expandImage, video: expandVideo, gal: expandGal, vibe: expandVibe, h3: expandH3 };
 
   /* ---------- 分类 ---------- */
-  /* ---------- 人像性别识别（仅用于人像分类下的「全部/男/女」子筛选） ----------
-     根据标题主语判断性别；识别不出返回 ''，归到「全部」，不会漏掉任何条目。
-     人物主语优先：先看主语位置的性别词，避免"抱着女儿的父亲"这类被误判。 */
+  /* ---------- 人像性别识别（人像分类 &「人像（全部）」的 ♀/♂ 子筛选） ----------
+     判断顺序：标题主语区(前 30 字) -> 标题全文 -> 提示词正文(去掉负面词，前 400 字)。
+     正文兜底能把"标题没写男女、但提示词里写着 1girl / a woman"的条目也认出来，
+     不然男/女视图里会漏掉一大半（用户反馈"分完类人怎么少了"的主因）。
+     识别不出返回 ''，归到「全部」，不会漏掉任何条目。 */
+  var PORTRAIT_ALL = '人像全部';
+  var PORTRAIT_ALL_LABEL = '人像（全部）';
   var PORTRAIT_KEYS = { '人像写真': 1, '人像人物': 1, '人像动漫': 1 };
   function isPortraitCat(key) { return !!PORTRAIT_KEYS[key]; }
+  // 标题里明确是"人"的词 —— 用来把散落在其他分类里的人物图也收进「人像（全部）」
+  var PERSON_TITLE = new RegExp(
+    '女人|男人|女孩|男孩|女性|男性|少女|少年|女士|先生|模特|新娘|新郎|老人|小孩|儿童|婴儿|' +
+    '姑娘|小伙|夫人|王子|公主|女王|国王|战士|仙女|精灵|舞者|歌手|演员|人物|人像|肖像|自拍|' +
+    '美女|帅哥|女神|小姐姐|老板娘|护士|教师|老师|医生|警察|军人|白领|学生|' +
+    'woman|women|man\\b|men\\b|girl|boy|female|male|model|lady|gentleman|' +
+    'portrait|selfie|headshot|person|people|human', 'i');
+  function titleHasPerson(p) {
+    if (p._pt != null) return p._pt;
+    p._pt = PERSON_TITLE.test(String(p.title || '').slice(0, 40));
+    return p._pt;
+  }
+  function isPortraitItem(p, effCat) {
+    return isPortraitCat(effCat || p.cat) || titleHasPerson(p);
+  }
 
-  var FEM_WORDS = ['女','女孩','女人','女性','少女','女士','她','新娘','妈妈','母亲','姐姐','妹妹','阿姨','姑娘','奶奶','外婆','女儿','嫂','woman','women','girl','female','lady','she','her','bride','actress','princess','queen','mom','mother'];
-  var MAS_WORDS = ['男','男孩','男人','男性','少年','先生','他','新郎','爸爸','父亲','哥哥','弟弟','叔叔','爷爷','儿子','小伙','man','men','boy','male','gentleman','he','his','groom','actor','prince','king','dad','father'];
+  var FEM_WORDS = ['女','女孩','女人','女性','少女','女士','她','新娘','妈妈','母亲','姐姐','妹妹','阿姨','姑娘','奶奶','外婆','女儿','嫂','美女','女神','女仆','妻子','老婆','女生','大小姐','御姐','woman','women','girl','female','lady','she','her','bride','actress','princess','queen','mom','mother'];
+  var MAS_WORDS = ['男','男孩','男人','男性','少年','先生','他','新郎','爸爸','父亲','哥哥','弟弟','叔叔','爷爷','儿子','小伙','男子','男生','帅哥','大叔','老头','大爷','爷爷','man','men','boy','male','gentleman','he','his','groom','actor','prince','king','dad','father'];
   function hasWord(text, words) {
     for (var i = 0; i < words.length; i++) {
       var w = words[i];
@@ -468,6 +487,25 @@
     if (mAll && !fAll) return 'M';
     return '';
   }
+  // 正文兜底：先剥掉负面提示词段（--no / negative prompt / 负面提示词）
+  function detectGenderBody(body) {
+    var b = String(body || '');
+    if (!b) return '';
+    b = b.split(/--no\b|negative\s*prompt|负面提示词|负面词/i)[0].slice(0, 400);
+    if (!b) return '';
+    var g = detectGender(b);
+    if (g) return g;
+    // 二次元/写实提示词常见的数量标签
+    if (/\b\d+\s*girls?\b|\bsolo\s+girl|\b1girl\b|\bfemale\b/i.test(b)) return 'F';
+    if (/\b\d+\s*boys?\b|\bsolo\s+boy|\b1boy\b|\bmale\b/i.test(b)) return 'M';
+    return '';
+  }
+  function genderOf(p) {
+    if (p._g != null) return p._g;
+    var g = detectGender(p.title) || detectGenderBody(p.body);
+    p._g = g;
+    return g;
+  }
 
   function currentCats() {
     var src = catMap();
@@ -486,13 +524,20 @@
     var keys = Object.keys(src);
     var total = 0;
     keys.forEach(function (k) { total += (cnt[k] || 0); });
-    // 人像三兄弟固定顺序, 作为一个组紧挨着排在「综合精选」之后, 不被其他类型隔开
-    var PORTRAIT_ORDER = { '人像写真': 0, '人像人物': 1, '人像动漫': 2 };
+    // 人像组固定顺序: 「人像（全部）」在最前，再接 写真→人物→动漫，作为一组排在「综合精选」之后
+    var PORTRAIT_ORDER = { '人像全部': -1, '人像（全部）': -1, '人像写真': 0, '人像人物': 1, '人像动漫': 2 };
     function isPortrait(c) { return Object.prototype.hasOwnProperty.call(PORTRAIT_ORDER, c.label) || Object.prototype.hasOwnProperty.call(PORTRAIT_ORDER, c.key); }
     function portraitRank(c) { return PORTRAIT_ORDER[c.label] != null ? PORTRAIT_ORDER[c.label] : PORTRAIT_ORDER[c.key]; }
     var items = keys.map(function (k) {
       return { key: k, label: src[k][0], icon: src[k][1], n: cnt[k] || 0 };
-    }).sort(function (a, b) {
+    });
+    // 「人像（全部）」不是真分类：它跨全部 42 个分类抓人物图，专门给 ♀/♂ 筛选当池子。
+    // 条数来自 manifest.portraitAllCount（数据侧统计），不参与「全部」的总数求和。
+    if (state.tab === 'gal') {
+      var paTotal = (state.manifest && state.manifest.portraitAllCount) || 0;
+      if (paTotal) items.push({ key: PORTRAIT_ALL, label: PORTRAIT_ALL_LABEL, icon: '👤', n: paTotal, virtual: true });
+    }
+    items.sort(function (a, b) {
       // 「综合精选」第一；其后人像组(写真→人物→动漫)连续排列；再是最新收录；其余按条数降序。
       function rank(c) {
         if (c.key === '综合精选' || c.label === '综合精选') return 0;
@@ -518,7 +563,8 @@
         html += '<span class="chip-group-label">🆕 最新收录</span>';
         newLabelDone = true;
       }
-      html += '<button class="chip' + (isNew ? ' is-new' : '') + '" data-cat="' + esc(c.key) + '">' +
+      html += '<button class="chip' + (isNew ? ' is-new' : '') + (c.virtual ? ' is-virtual' : '') +
+        '" data-cat="' + esc(c.key) + '">' +
         c.icon + ' ' + esc(c.label) + '<span class="cnt">' + fmtNum(c.n) + '</span></button>';
     });
     var box = $('#categoriesScroll');
@@ -561,7 +607,7 @@
       }
     };
 
-    $('#popularLinks').innerHTML = items.slice(0, 9).map(function (c) {
+    $('#popularLinks').innerHTML = items.filter(function (c) { return !c.virtual; }).slice(0, 9).map(function (c) {
       return '<a href="#" data-q="' + esc(c.label) + '">' + c.icon + ' ' + esc(c.label) + '</a>';
     }).join('');
     $('#popularLinks').onclick = function (e) {
@@ -578,7 +624,7 @@
   function syncGenderBar() {
     var bar = $('#genderBar');
     if (!bar) return;
-    var show = isPortraitCat(state.cat) && state.tab === 'gal';
+    var show = state.tab === 'gal' && (state.cat === PORTRAIT_ALL || isPortraitCat(state.cat));
     bar.hidden = !show;
     if (!show && state.gender) {
       state.gender = '';
@@ -597,6 +643,8 @@
   /* ---------- 过滤 ---------- */
   function apply() {
     var q = state.q.trim().toLowerCase();
+    // 多词搜索按"空格分词、全部命中"处理（原来整串匹配，"女性 肖像"这种会 0 条）
+    var qs = q ? q.split(/\s+/).filter(Boolean) : [];
     var rep = loadReports();
     var recat = rep.recat;
     var list = pool().filter(function (p) {
@@ -604,9 +652,12 @@
       if (isHiddenId(p.id)) return false;
       // 本地纠错：用户把这图转移到别的分类后，按"有效分类"判断
       var effCat = recat[p.id] || p.cat;
-      if (state.cat && effCat !== state.cat) return false;
-      // 人像分类下的性别子筛选：识别不出的（''）只在「全部」显示，男/女视图里排除
-      if (state.gender && isPortraitCat(effCat) && detectGender(p.title) !== state.gender) return false;
+      // 「人像（全部）」= 跨全部分类的人像池（人像三类 + 其他分类里标题明确是人物的图）
+      if (state.cat === PORTRAIT_ALL) {
+        if (!isPortraitItem(p, effCat)) return false;
+      } else if (state.cat && effCat !== state.cat) return false;
+      // 男/女子筛选：识别不出的（''）只在「全部」显示，男/女视图里排除
+      if (state.gender && genderOf(p) !== state.gender) return false;
       if (state.onlyRefs) {
         // 灵感画廊现在只装图片提示词，视频提示词在独立页签里。
         // 这里仍留一道兜底：画廊里只认带 gal 标记的图片条目。
@@ -614,10 +665,13 @@
         if (!(p.refs && p.refs.length)) return false;
       }
       if (state.tab !== 'gal' && state.lang && p.lang !== state.lang) return false;
-      if (!q) return true;
-      return (p.title + ' ' + p.body + ' ' + p.catLabel + ' ' + (p.author || '') + ' ' +
-        (p.desc || '') + ' ' + (p.model || ''))
-        .toLowerCase().indexOf(q) !== -1;
+      if (!qs.length) return true;
+      var hay = (p.title + ' ' + p.body + ' ' + p.catLabel + ' ' + (p.author || '') + ' ' +
+        (p.desc || '') + ' ' + (p.model || '')).toLowerCase();
+      for (var qi = 0; qi < qs.length; qi++) {
+        if (hay.indexOf(qs[qi]) === -1) return false;
+      }
+      return true;
     });
     if (state.sort === 'newest') list.sort(function (a, b) { return freshness(b) - freshness(a); });
     else if (state.sort === 'long') list.sort(function (a, b) { return b.chars - a.chars; });
@@ -746,18 +800,25 @@
     // 分批拉取(首屏包 120 + 分片补到 240)是为了不把带宽占满, 差额标出来,
     // 想要更多可以点「加载更多」。不然用户会以为数据丢了。
     var catTotal = 0;
-    if (state.cat && state.manifest && state.manifest.catCounts) {
+    if (state.cat === PORTRAIT_ALL) {
+      catTotal = (state.manifest && state.manifest.portraitAllCount) || 0;
+    } else if (state.cat && state.manifest && state.manifest.catCounts) {
       catTotal = (state.manifest.catCounts[state.tab] || {})[state.cat] || 0;
     }
-    var tail = catTotal > state.list.length ? ' / 共 ' + catTotal + ' 条' : '';
+    // 选了性别时条数就只说"筛出来多少"，别写"/共 2813 条"（会被误以为数据丢了）
+    var tail = (!state.gender && catTotal > state.list.length) ? ' / 共 ' + catTotal + ' 条' : '';
     $('#resultCount').textContent = '（' + state.list.length + ' 条' + tail +
       (stillLoading ? '，加载中…' : '') + '）';
     var active = $('#categoriesScroll .chip.active');
-    var label = active ? active.textContent.replace(/\d+$/, '').trim() : '全部';
+    var label = state.cat === PORTRAIT_ALL ? PORTRAIT_ALL_LABEL
+      : (active ? active.textContent.replace(/[\d.]+[wk]?$/, '').trim() : '全部');
     $('#listTitle').firstChild.nodeValue = state.q ? '搜索“' + state.q + '”' : label;
-    $('#hint').textContent = state.onlyRefs
+    var gLabel = state.gender === 'F' ? '♀ 女性' : (state.gender === 'M' ? '♂ 男性' : '');
+    var hintText = state.onlyRefs
       ? '只看带风格参考图的图片条目（点开卡片可看参考图）'
-      : (stillLoading && state.tab === 'gal'
+      : (state.tab === 'gal' && state.cat === PORTRAIT_ALL
+        ? '已跨全站 42 个分类汇总人物图（写实 / 二次元 / 各模型分类里的人都在内），点上方「性别」再筛男女'
+        : stillLoading && state.tab === 'gal'
         ? '⟳ 正在补充该分类的数据，数量会继续增长…'
         : (state.tab === 'gal'
           ? '图片提示词 · 点开卡片看完整提示词与风格参考'
@@ -766,6 +827,8 @@
               ? '⚠️ 当前「热门视频」是 AI 生成的静音画面（没有声音）；想听原声 → 点回「全部」或 动作 / 口播 / 音乐MV 等分类（卡片右下角有 🔊）'
               : '✦ 开放精选视频优先展示；进画面自动静音循环，点开卡片可听原声（右下角 🔊 的是带原声的）')
             : '')));
+    if (gLabel) hintText = '已只显示「' + gLabel + '」· 识别不出性别的不进这个视图 · ' + hintText;
+    $('#hint').textContent = hintText;
     // 静音默认分类给个醒目的黄条
     if ($('#hint')) $('#hint').classList.toggle('hint-warn', state.tab === 'video' && state.cat === 'hotvideo');
     // 卡片重画了, 重新挂一次自动播放的观察器
@@ -1209,6 +1272,8 @@
   }
 
   function catShardMatch(fname, cat) {
+    // GPT 系列在数据侧已合并成一个 "GPT Image" 分类，条目来自 oi / wf / kook 三个来源
+    if (cat === 'GPT Image') return /^(oi_gal_|wf_image_|kook_image_)/.test(fname);
     if (/^oi-/.test(cat)) return /^oi_gal_/.test(fname);
     if (/^wf-/.test(cat)) return /^wf_image_/.test(fname);
     if (/^kook-/.test(cat)) return /^kook_image_/.test(fname);
@@ -1232,9 +1297,19 @@
     var myToken = catToken[tab] = (catToken[tab] || 0) + 1;
     // 已经按顺序并入的分片不用再拉(首屏包可能已经带来了它们的条目)
     var loaded = state.chunks[tab];
-    var list = shards(tab).filter(function (d, idx) {
-      return idx >= loaded && catShardMatch(d.f, cat);
-    }).slice(0, CAT_SHARD_MAX);
+    // 「人像（全部）」要把全站各来源都翻一遍, 配额比单个分类大得多
+    var allPortrait = cat === PORTRAIT_ALL;
+    var maxShard = allPortrait ? 8 : CAT_SHARD_MAX;
+    var maxRow = allPortrait ? 3000 : CAT_ROW_MAX;
+    var all = shards(tab).filter(function (d, idx) { return idx >= loaded; });
+    // 人像主要沉在 gal_* 分片（中文分类）里，先在那边翻，再补 wf/oi/kook
+    if (allPortrait) {
+      all = all.filter(function (d) { return /^gal_/.test(d.f); })
+               .concat(all.filter(function (d) { return !/^gal_/.test(d.f); }));
+    }
+    var list = all.filter(function (d) {
+      return allPortrait || catShardMatch(d.f, cat);
+    }).slice(0, maxShard);
     var seen = {};
     (state[tab] || []).forEach(function (p) { seen[p.id] = 1; });
     var i = 0, active = 0, stopped = false, got = 0, full = false;
@@ -1272,7 +1347,7 @@
             .then(function () {
               active--;
               if (stopped) return;
-              if (got >= CAT_ROW_MAX) { full = true; settle(); return; }
+              if (got >= maxRow) { full = true; settle(); return; }
               if (active === 0 && i >= list.length) { settle(); return; }
               next();
             });

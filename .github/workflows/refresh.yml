@@ -118,6 +118,14 @@ jobs:
         # totalCats(refresh.py 用纯 gal 的 galCats 算, 会少算 wf+kook 共 9 个)。
         run: |
           python tools/build_kook.py
+      - name: 分类重整（GPT 系列合并 + 人像洁净 + 人像总集首屏包）
+        # refresh.py 每晚按源站重新打标, 会把 "GPT Image / GPT Image 2 / 2.5 / 2.6" 拆成
+        # 一堆小分类, 也会把超现实/合成/二次元的人像塞回「人像写真」。这里再跑一遍重整:
+        #   1) GPT 系列全部并成一个 "GPT Image"
+        #   2) 人像写真只留写实, 合成艺术 -> 人像人物, 二次元/3D -> 人像动漫
+        #   3) 重建所有分类首屏包 + 「人像全部」首屏包(跨全分类的人像池, 给性别筛选用)
+        # 放在 build_catpack / build_kook 之后, 保证覆盖它们生成的旧包。
+        run: python tools/reorg_cats_v6.py --apply
       - name: 轮播改用最新收录图片 + 文案中性化
         # 必须在 build_oi / build_wf(会重写 oiHero) 和 build_catpack / build_kook 之后
         run: |
@@ -141,6 +149,7 @@ jobs:
           open('index.html', 'w', encoding='utf-8').write(t)
           print('DATA_VER =', ver, '| config.js?v=' + h)
           EOF
+          python tools/bump_assets.py
       - name: 提交改动
         run: |
           git config user.name  "github-actions[bot]"
