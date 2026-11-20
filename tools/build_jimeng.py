@@ -25,6 +25,7 @@ ROOT = os.path.dirname(HERE)
 DATA = os.environ.get("GAL_OUTDIR") or os.path.join(ROOT, "data")
 MANI = os.path.join(DATA, "manifest.json")
 RAW = os.path.join(ROOT, ".cache", "jimeng_raw.json")
+LABELS = os.path.join(HERE, "jimeng_visual_labels_by_id.json")
 CHUNK = 600
 
 CAT_ICON = {
@@ -62,10 +63,30 @@ def main():
         print("即梦数据为空, 跳过")
         return
 
+    # ---- 视觉判定持久映射: 按作品ID强制回填已判定分类 ----
+    # 每日刷新会重跑 fetch_jimeng.py, 它按官方页签打标, 会覆盖人工逐张判定的结果。
+    # 这里以 jimeng_visual_labels_by_id.json 为最高优先级: 已判定的ID一律回填,
+    # 只有本表没有的新增ID才用官方页签(fallback), 保证"图片与分类一致"不被刷新冲掉。
+    label_map = {}
+    if os.path.exists(LABELS):
+        try:
+            _d = json.load(open(LABELS, encoding="utf-8"))
+            label_map = _d.get("labels") or {}
+            print("已加载视觉判定映射: %d 条 (优先于官方页签)" % len(label_map))
+        except Exception as e:
+            print("!! 视觉判定映射读取失败, 退回官方页签:", str(e)[:80])
+    overridden = 0
+
     # 转为 gal 行格式
     gal = []
     for r in rows:
+        rid = r.get("id") or ("jm-" + hashlib.md5(((r.get("title") or "") + (r.get("cover") or "")).encode()).hexdigest()[:12])
         cat = r.get("cat") or "jimeng-其他"
+        if rid in label_map:
+            fixed = "jimeng-" + label_map[rid]
+            if fixed != cat:
+                overridden += 1
+            cat = fixed
         prompt = r.get("prompt") or r.get("title") or ""
         title = r.get("title") or prompt[:36]
         desc = r.get("author") or ""
@@ -73,9 +94,11 @@ def main():
         if not cover:
             continue
         gal.append([
-            r.get("id") or ("jm-" + hashlib.md5((title + cover).encode()).hexdigest()[:12]),
+            rid,
             title, prompt, cat, desc, cover, [], ts_to_date(r.get("ctime"))
         ])
+    if overridden:
+        print("按视觉判定回填分类: %d 条" % overridden)
     if not gal:
         print("无有效行, 跳过")
         return
