@@ -545,6 +545,14 @@
   function isKookKey(k) { return /^kook-/.test(String(k || '')); }
   /* 即梦(jimeng-*): 独立数据源, 未登录公开探索页抓的图文作品。 */
   function isJimengKey(k) { return /^jimeng-/.test(String(k || '')); }
+  // 即梦组内展示顺序: 平面设计 -> 电商 -> 其他(固定顺序, 不随条数变)
+  function jimengRank(c) {
+    var k = String((c && c.key) || '');
+    if (k === 'jimeng-平面设计') return 0;
+    if (k === 'jimeng-电商') return 1;
+    if (k === 'jimeng-其他') return 2;
+    return 3;
+  }
   function kookKeys() {
     var cats = (state.manifest && state.manifest.galCats) || {};
     return Object.keys(cats).filter(isKookKey);
@@ -695,6 +703,8 @@
       var d = rank(a) - rank(b);
       if (d) return d;
       if (isPortrait(a) && isPortrait(b)) return portraitRank(a) - portraitRank(b);
+      // 即梦组内固定顺序: 平面设计 -> 电商 -> 其他(不按条数排)
+      if (isJimengKey(a.key) && isJimengKey(b.key)) return jimengRank(a) - jimengRank(b);
       return b.n - a.n;
     });
 
@@ -1488,15 +1498,35 @@
     if (add.length) Array.prototype.push.apply(state[tab], add);
     return add.length;
   }
+  /* 带超时的 fetch: 国内直连 github.io 偶尔连接挂死(不返回也不报错),
+     没有超时的话首屏会永远空白。12 秒没回来就掐掉重连一次。 */
+  var FETCH_TIMEOUT = 12000;
+  function timedFetch(url, ctl) {
+    if (ctl) {
+      ctl._timer = setTimeout(function () { ctl._to = 1; try { ctl.abort(); } catch (e) {} }, FETCH_TIMEOUT);
+    }
+    return fetch(url, ctl ? { signal: ctl.signal } : undefined).then(function (r) {
+      if (ctl && ctl._timer) clearTimeout(ctl._timer);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }, function (e) {
+      if (ctl && ctl._timer) clearTimeout(ctl._timer);
+      throw e;
+    });
+  }
   function loadPack(tab, name, kind, cat, cb) {
     var key = tab + '|' + name;
     if (!name || packLoaded[key]) { if (cb) cb(); return; }
     // 复用预热缓存: 若 boot 已在后台拉过这个包(或正在拉), 直接共享同一个 promise, 不重复请求
     var pr = catPackCache[name];
     if (!pr) {
-      pr = fetch(dataUrl(name + '.json'))
-        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-        .catch(function () { return null; });   // 失败返回 null, 下面清标记, 下次可重试
+      var ctl = (window.AbortController) ? new AbortController() : null;
+      pr = timedFetch(dataUrl(name + '.json'), ctl)
+        .catch(function () { return null; })   // 失败/超时返回 null, 下面清缓存, 下次可重试
+        .then(function (rows) {
+          if (!rows) delete catPackCache[name];   // 别让一次失败把该分类永久卡死
+          return rows;
+        });
       catPackCache[name] = pr;
     }
     pr.then(function (rows) {
@@ -1633,7 +1663,7 @@
     });
   }
 
-  function loadTab(tab, cb, silent) {
+  function loadTab(tab, cb, silent, retried) {
     if (state.chunks[tab] > 0) { cb(); return; }   // 已加载过第 0 片
     if (state.loading[tab]) return;
     var list = shards(tab);
@@ -1650,8 +1680,7 @@
     // 首片(如 wf_image_0)自己也有一两 MB, 用户点分类时也得能让它把带宽交出来
     var ctl = (window.AbortController) ? new AbortController() : null;
     if (ctl) firstAbort[tab] = ctl;
-    fetch(dataUrl(first.f + '.json'), ctl ? { signal: ctl.signal } : undefined)
-      .then(function (r) { return r.json(); }).then(function (rows) {
+    timedFetch(dataUrl(first.f + '.json'), ctl).then(function (rows) {
       if (ctl) delete firstAbort[tab];
       var fresh = rows.map(EXPAND[first ? first.k : tab]);
       // 首屏包(cp_all)可能已经先到了: 不要覆盖, 只把新条目追加在后面
@@ -1672,9 +1701,14 @@
       streamChunks(tab);   // 后台渐进拉取其余分片
     }).catch(function (e) {
       if (ctl && ctl.signal.aborted) {
+        state.loading[tab] = 0;
+        // 超时掐断(连接挂死): 换新连接自动重试一次, 别让用户干等
+        if (ctl._to && !retried) {
+          setTimeout(function () { loadTab(tab, cb, silent, true); }, 400);
+          return;
+        }
         // 被 stopStream 掐掉(用户点了分类): 不算失败, 别弹 toast 吓人。
         // chunks 还是 0, 之后回这个页签会重新拉首片。
-        state.loading[tab] = 0;
         if (!silent) busy(false);
         return;
       }
@@ -2231,8 +2265,11 @@
     next();
   }
 
-  function boot() {
-    fetch(dataUrl('manifest.json')).then(function (r) { return r.json(); }).then(function (m) {
+  function boot(retried) {
+    // 一进页就给加载态: 数据在路上时用户看到转圈, 而不是一片空白以为站坏了
+    busy(true, '正在加载首屏数据…');
+    var mctl = (window.AbortController) ? new AbortController() : null;
+    timedFetch(dataUrl('manifest.json'), mctl).then(function (m) {
       state.manifest = m;
       var start = tabFromUrl() || 'gal';
       state.tab = start;
