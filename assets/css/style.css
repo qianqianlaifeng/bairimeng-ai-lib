@@ -607,3 +607,82 @@ html.is-dark .arg b { color: #f6dc96; }
 html.is-dark .arg i { color: #ffb27a; }
 html.is-dark .guide-card code { background: #242831; color: #b9b0ff; }
 html.is-dark .copy-hint { color: #7bd8a2; }
+
+/* ===========================================================
+   浏览设置面板 / 返回顶部  (settings.js)
+   =========================================================== */
+.settings-mask {
+  position: fixed; inset: 0; z-index: 900; display: none;
+  align-items: center; justify-content: center; padding: 20px;
+  background: rgba(10, 10, 14, .5); backdrop-filter: blur(3px);
+}
+.settings-mask.open { display: flex; }
+.settings-panel {
+  width: min(460px, 100%); max-height: 86vh; overflow: auto;
+  background: var(--card); color: var(--text); border: 1px solid var(--line);
+  border-radius: 18px; box-shadow: var(--shadow-lg);
+  animation: setPop .18s ease-out;
+}
+@keyframes setPop { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
+.settings-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 20px; border-bottom: 1px solid var(--line);
+}
+.settings-head h3 { margin: 0; font-size: 17px; }
+.settings-body { padding: 6px 20px 14px; }
+.set-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 15px 0; border-bottom: 1px solid var(--line);
+}
+.set-row:last-child { border-bottom: none; }
+.set-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.set-info b { font-size: 14px; font-weight: 700; }
+.set-info small { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.set-static { align-items: center; }
+/* 开关 */
+.switch {
+  appearance: none; -webkit-appearance: none; position: relative; flex: 0 0 auto;
+  width: 44px; height: 24px; border-radius: 999px; background: var(--line);
+  cursor: pointer; transition: background .18s; outline: none;
+}
+.switch::after {
+  content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px;
+  border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25);
+  transition: transform .18s;
+}
+.switch:checked { background: var(--accent); }
+.switch:checked::after { transform: translateX(20px); }
+/* 下拉 */
+.set-select {
+  flex: 0 0 auto; min-width: 108px; height: 34px; padding: 0 10px;
+  border-radius: 9px; border: 1px solid var(--line); background: var(--bg);
+  color: var(--text); font-size: 13px; cursor: pointer; outline: none;
+}
+.set-select:focus { border-color: var(--accent); }
+.set-reset {
+  flex: 0 0 auto; padding: 7px 14px; border-radius: 9px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--muted);
+  font-size: 12px; font-weight: 600; transition: .16s;
+}
+.set-reset:hover { border-color: var(--accent); color: var(--accent); }
+/* 返回顶部 */
+.back-top {
+  position: fixed; right: 24px; bottom: 28px; z-index: 80;
+  width: 44px; height: 44px; border-radius: 50%;
+  background: var(--card); color: var(--accent); border: 1px solid var(--line);
+  box-shadow: var(--shadow-lg); font-size: 20px; font-weight: 700;
+  opacity: 0; pointer-events: none; transform: translateY(12px);
+  transition: opacity .2s, transform .2s, background .16s;
+}
+.back-top.show { opacity: 1; pointer-events: auto; transform: none; }
+.back-top:hover { background: var(--accent); color: #fff; }
+@media (max-width: 640px) {
+  .settings-panel { border-radius: 14px; }
+  .back-top { right: 14px; bottom: 18px; width: 40px; height: 40px; }
+}
+
+/* 纯图模式: 只看瀑布流图片, 隐藏卡片文字, 找脸模/选图一屏看更多 */
+body.image-only .prompt-card .card-body { display: none !important; }
+body.image-only .grid-container { column-gap: 10px; }
+body.image-only .grid-container .prompt-card { margin-bottom: 10px; }
+body.image-only .prompt-card .card-cover { border-radius: 10px; }

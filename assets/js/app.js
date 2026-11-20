@@ -10,7 +10,10 @@
 (function () {
   'use strict';
 
-  var PAGE_SIZE = 24;
+  var PAGE_SIZE = (function () {
+    try { var n = parseInt(localStorage.getItem('br_page_size'), 10); if (n === 48 || n === 72) return n; } catch (e) {}
+    return 24;
+  })();
   var state = {
     tab: 'gal', cat: '', q: '', lang: '', sort: 'newest', page: 1, openId: '',
     onlyRefs: false,
@@ -387,23 +390,34 @@
     var keys = Object.keys(src);
     var total = 0;
     keys.forEach(function (k) { total += (cnt[k] || 0); });
+    // 人像三兄弟固定顺序, 作为一个组紧挨着排在「综合精选」之后, 不被其他类型隔开
+    var PORTRAIT_ORDER = { '人像写真': 0, '人像人物': 1, '人像动漫': 2 };
+    function isPortrait(c) { return Object.prototype.hasOwnProperty.call(PORTRAIT_ORDER, c.label) || Object.prototype.hasOwnProperty.call(PORTRAIT_ORDER, c.key); }
+    function portraitRank(c) { return PORTRAIT_ORDER[c.label] != null ? PORTRAIT_ORDER[c.label] : PORTRAIT_ORDER[c.key]; }
     var items = keys.map(function (k) {
       return { key: k, label: src[k][0], icon: src[k][1], n: cnt[k] || 0 };
     }).sort(function (a, b) {
-      // 「综合精选」固定排第一个分类；其后是最新收录的三个分类；其余按条数降序。
+      // 「综合精选」第一；其后人像组(写真→人物→动漫)连续排列；再是最新收录；其余按条数降序。
       function rank(c) {
         if (c.key === '综合精选' || c.label === '综合精选') return 0;
-        if (isNewCat(c.key)) return 1;
-        return 2;
+        if (isPortrait(c)) return 1;
+        if (isNewCat(c.key)) return 2;
+        return 3;
       }
       var d = rank(a) - rank(b);
-      return d || (b.n - a.n);
+      if (d) return d;
+      if (isPortrait(a) && isPortrait(b)) return portraitRank(a) - portraitRank(b);
+      return b.n - a.n;
     });
 
     var html = '<button class="chip active" data-cat="">全部<span class="cnt">' + fmtNum(total) + '</span></button>';
-    var newLabelDone = false;
+    var newLabelDone = false, portraitLabelDone = false;
     items.forEach(function (c) {
       var isNew = isNewCat(c.key);
+      if (isPortrait(c) && !portraitLabelDone) {
+        html += '<span class="chip-group-label">👤 人像</span>';
+        portraitLabelDone = true;
+      }
       if (isNew && !newLabelDone) {
         html += '<span class="chip-group-label">🆕 最新收录</span>';
         newLabelDone = true;
@@ -525,7 +539,8 @@
       // 封面按真实宽高比撑开容器（加载完成覆写 --ar），所以图片是完整展示而不是裁切。
       // referrerpolicy: 有的图床(openimages)带第三方 referer 会 403, 必须去掉。
       // 后面的 cat-icon 是兜底占位: 图彻底加载不出来时 has-img 被移除, 露出渐变+图标。
-      inner = '<img class="cover"' + (eager ? ' fetchpriority="high"' : ' loading="lazy"') +
+      var lazyOn = window.BR_SETTINGS ? window.BR_SETTINGS.lazy !== false : true;
+      inner = '<img class="cover"' + (eager ? ' fetchpriority="high"' : (lazyOn ? ' loading="lazy"' : ' loading="eager"')) +
         ' src="' + esc(coverUrl(p.cover)) + '"' +
         ' data-orig="' + esc(coverUrl(p.cover)) + '" referrerpolicy="no-referrer"' +
         ' onload="this.parentNode.classList.add(\'has-img\');' +
@@ -1380,13 +1395,32 @@
       }
     });
 
-    $('#loadMoreBtn').addEventListener('click', function () {
+    function doLoadMore() {
       var tab = state.tab, need = (state.page + 1) * PAGE_SIZE;
       function go() { state.page++; render(); }
       if (state[tab].length >= need || state.done[tab]) return go();
       busy(true, '加载更多…');
       loadOneChunk(tab).then(function () { busy(false); go(); });
-    });
+    }
+    $('#loadMoreBtn').addEventListener('click', doLoadMore);
+    // 供 settings.js / 下滑自动加载调用: 返回是否真的还有更多可加载
+    window.BR_loadMore = function () {
+      var tab = state.tab;
+      var hasMore = $('#loadMoreWrap').style.display !== 'none' && !state.done[tab];
+      if (hasMore) doLoadMore();
+      return hasMore;
+    };
+    window.BR_rerender = function () { render(); };
+    window.BR_setPageSize = function (n) { if (n === 24 || n === 48 || n === 72) { PAGE_SIZE = n; state.page = 1; render(); } };
+    // 供设置面板: 当前已渲染的可见卡片 id 列表 / 按 id 打开大图 / 关闭弹窗
+    window.BR_visibleIds = function () {
+      return Array.prototype.map.call(
+        document.querySelectorAll('#grid .prompt-card'), function (c) { return c.dataset.id; });
+    };
+    window.BR_openById = function (id) { if (id) openModal(id); };
+    window.BR_closeModal = closeModal;
+    window.BR_modalOpen = function () { return $('#modalMask').classList.contains('open'); };
+    window.BR_currentId = function () { return state.openId; };
 
     $('#copyBtn').addEventListener('click', function () {
       var open = $('#modalMask').classList.contains('open');
@@ -1395,7 +1429,11 @@
         var p = pool().filter(function (x) { return x.id === state.openId; })[0];
         txt = p ? p.body : $('#mBody').textContent;
       }
-      var ok = function () { $('#copyHint').textContent = '✓ 已复制全文'; };
+      var ok = function () {
+        $('#copyHint').textContent = '✓ 已复制全文';
+        var st = window.BR_SETTINGS;
+        if (st && st.copyClose) setTimeout(function () { if (window.BR_closeModal) window.BR_closeModal(); }, 350);
+      };
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(txt).then(ok, function () { fb(txt, ok); });
       } else { fb(txt, ok); }

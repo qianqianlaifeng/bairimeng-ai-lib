@@ -16,7 +16,7 @@
     document.documentElement.classList.toggle('is-dark', t !== 'light');
   })();
 </script>
-<link rel="stylesheet" href="assets/css/style.css?v=20261117c" />
+<link rel="stylesheet" href="assets/css/style.css?v=35e0b1fe" />
 </head>
 <body>
 
@@ -28,6 +28,7 @@
     </a>
     <div class="nav-right">
       <button class="theme-toggle" id="themeToggle" type="button" aria-label="切换日间模式" title="切换日间 / 夜间模式"><span class="theme-toggle__icon" aria-hidden="true">☀</span></button>
+      <button class="theme-toggle" id="settingsBtn" type="button" aria-label="打开设置" title="浏览设置"><span class="theme-toggle__icon" aria-hidden="true">⚙</span></button>
       <a class="btn btn-ghost" href="usage.html">使用说明</a>
     </div>
   </div>
@@ -150,10 +151,70 @@
   </div>
 </div>
 
+<!-- 浏览设置面板 -->
+<div class="settings-mask" id="settingsMask" aria-hidden="true">
+  <div class="settings-panel" role="dialog" aria-label="浏览设置">
+    <div class="settings-head">
+      <h3>⚙ 浏览设置</h3>
+      <button class="modal-close" id="settingsClose" type="button" aria-label="关闭">✕</button>
+    </div>
+    <div class="settings-body">
+      <label class="set-row">
+        <span class="set-info"><b>下滑自动加载</b><small>滑到接近底部时自动加载下一批，不用再点「加载更多」</small></span>
+        <input type="checkbox" id="setAutoLoad" class="switch" />
+      </label>
+      <label class="set-row">
+        <span class="set-info"><b>瀑布流列数</b><small>一屏显示多少列；窄屏会自动减少</small></span>
+        <select id="setCols" class="set-select">
+          <option value="auto">自动（推荐）</option>
+          <option value="2">2 列</option><option value="3">3 列</option>
+          <option value="4">4 列</option><option value="5">5 列</option><option value="6">6 列</option>
+        </select>
+      </label>
+      <label class="set-row">
+        <span class="set-info"><b>每批加载条数</b><small>每次加载多少张；想刷得快就调大</small></span>
+        <select id="setPageSize" class="set-select">
+          <option value="24">24 条</option><option value="48">48 条</option><option value="72">72 条</option>
+        </select>
+      </label>
+      <label class="set-row">
+        <span class="set-info"><b>返回顶部按钮</b><small>下滑后右下角出现，一键回到顶部</small></span>
+        <input type="checkbox" id="setBackTop" class="switch" checked />
+      </label>
+      <label class="set-row">
+        <span class="set-info"><b>图片懒加载</b><small>只加载进入视口的封面，省流量、开页更快</small></span>
+        <input type="checkbox" id="setLazy" class="switch" checked />
+      </label>
+      <label class="set-row">
+        <span class="set-info"><b>纯图模式</b><small>隐藏卡片文字，只看瀑布流图片；找脸模/选图时一屏看更多</small></span>
+        <input type="checkbox" id="setImageOnly" class="switch" />
+      </label>
+      <label class="set-row">
+        <span class="set-info"><b>键盘翻页</b><small>大图弹窗里按 ← → 切换上一张/下一张，快速筛选</small></span>
+        <input type="checkbox" id="setKeyNav" class="switch" checked />
+      </label>
+      <label class="set-row">
+        <span class="set-info"><b>复制后关闭弹窗</b><small>复制提示词后自动收起，连着刷图更顺手</small></span>
+        <input type="checkbox" id="setCopyClose" class="switch" />
+      </label>
+      <label class="set-row">
+        <span class="set-info"><b>主题跟随系统</b><small>按系统明暗自动切换日/夜；关闭则用手动选择的主题</small></span>
+        <input type="checkbox" id="setThemeAuto" class="switch" />
+      </label>
+      <div class="set-row set-static">
+        <span class="set-info"><b>提示</b><small>设置保存在本机浏览器，下次打开自动生效</small></span>
+        <button type="button" id="setReset" class="set-reset">恢复默认</button>
+      </div>
+    </div>
+  </div>
+</div>
+<button class="back-top" id="backTop" type="button" aria-label="返回顶部" title="返回顶部">↑</button>
+
 <div id="toast" style="position:fixed;left:50%;bottom:38px;transform:translate(-50%,20px);background:rgba(22,24,29,.93);color:#fff;padding:10px 20px;border-radius:999px;font-size:13px;opacity:0;pointer-events:none;transition:.25s;z-index:999"></div>
 
-<script src="assets/js/config.js?v=03d5d546"></script>
-<script src="assets/js/theme.js?v=20261117a"></script>
-<script src="assets/js/app.js?v=20261117a"></script>
+<script src="assets/js/config.js?v=88970f87"></script>
+<script src="assets/js/theme.js?v=bb265089"></script>
+<script src="assets/js/app.js?v=50e84320"></script>
+<script src="assets/js/settings.js?v=baf7b4ca"></script>
 </body>
 </html>
