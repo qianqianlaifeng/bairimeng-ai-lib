@@ -16,7 +16,7 @@
   })();
   var state = {
     tab: 'gal', cat: '', q: '', lang: '', sort: 'newest', page: 1, openId: '',
-    onlyRefs: false, gender: '',
+    onlyRefs: false, gender: '', kookSub: '',
     text: [], image: [], video: [], gal: [], list: [], manifest: null, loading: {},
     fails: { text: 0, image: 0, video: 0, gal: 0 },
     chunks: { text: 0, image: 0, video: 0, gal: 0 },
@@ -428,6 +428,19 @@
      正文兜底能把"标题没写男女、但提示词里写着 1girl / a woman"的条目也认出来，
      不然男/女视图里会漏掉一大半（用户反馈"分完类人怎么少了"的主因）。
      识别不出返回 ''，归到「全部」，不会漏掉任何条目。 */
+  /* KOOK：数据里仍是 kook-yaoguang / kook-rumengsihuan 两个原始分类（每日同步脚本按栏目打标），
+     这里在界面上折叠成一个「KOOK」芯片，点进去再用子筛选只看某个栏目。 */
+  var KOOK_GROUP = 'kook';
+  function isKookKey(k) { return /^kook-/.test(String(k || '')); }
+  function kookKeys() {
+    var cats = (state.manifest && state.manifest.galCats) || {};
+    return Object.keys(cats).filter(isKookKey);
+  }
+  function kookLabel(key) {
+    var cats = (state.manifest && state.manifest.galCats) || {};
+    return (cats[key] || [key])[0];
+  }
+
   var PORTRAIT_ALL = '人像全部';
   var PORTRAIT_ALL_LABEL = '人像（全部）';
   var PORTRAIT_KEYS = { '人像写真': 1, '人像人物': 1, '人像动漫': 1 };
@@ -520,7 +533,7 @@
   }
 
   var CHIP_TITLE = {
-    'kook': 'KOOK（原「瑶光 / 如梦似幻」两个栏目，已合并）',
+    'kook': 'KOOK（瑶光 / 如梦似幻 合在这里，点进去可再按栏目筛）',
     'GPT Image': 'GPT 系列全部合并在这里（GPT Image / 2 / 2.5 / 2.6 / GPT-6 Astra）'
   };
   function buildCategories() {
@@ -541,6 +554,14 @@
     if (state.tab === 'gal') {
       var paTotal = (state.manifest && state.manifest.portraitAllCount) || 0;
       if (paTotal) items.push({ key: PORTRAIT_ALL, label: PORTRAIT_ALL_LABEL, icon: '👤', n: paTotal, virtual: true });
+      // KOOK：把瑶光 / 如梦似幻两个键折叠成一个芯片（条数合计）
+      var kk = kookKeys();
+      if (kk.length) {
+        var kn = 0;
+        kk.forEach(function (k) { kn += cnt[k] || 0; });
+        items = items.filter(function (c) { return !isKookKey(c.key); });
+        items.push({ key: KOOK_GROUP, label: 'KOOK', icon: '🎨', n: kn, virtual: true, kook: true });
+      }
     }
     items.sort(function (a, b) {
       // 「综合精选」第一；其后人像组(写真→人物→动漫)连续排列；再是最新收录；其余按条数降序。
@@ -582,7 +603,9 @@
       b.classList.add('active');
       state.cat = b.dataset.cat;
       state.page = 1;
+      state.kookSub = '';          // 换分类时栏目筛选复位
       syncGenderBar();
+      syncKookBar();
       apply();
       /* 先拉该分类的「首屏包」(单个小文件, 1~2 秒就有图), 再在后台按分片慢慢补全。
          全程不遮罩: 没数据时显示"正在加载该分类", 有数据就画, 条数持续增长。 */
@@ -593,7 +616,11 @@
         stopStream(t0);
         if (t0 === 'gal') {
           var man = state.manifest;
-          var pk = man && man.galCatPack && man.galCatPack[c0];
+          var cpMap = (man && man.galCatPack) || {};
+          // KOOK 是"折叠"出来的分类：要把它下面每个栏目的首屏包都拉一遍
+          var pks = c0 === KOOK_GROUP
+            ? kookKeys().map(function (k) { return cpMap[k]; }).filter(Boolean)
+            : (cpMap[c0] ? [cpMap[c0]] : []);
           pauseWarmup();   // 用户点了分类: 立刻掐掉后台预热, 把 6 个 CDN 连接让给"被点的分类包"
           var after = function () {
             if (state.tab === t0 && state.cat === c0) pullForCat(t0, c0);
@@ -601,8 +628,12 @@
             resumeWarmupSoon(6000);   // 补分片先跑, 6s 后再续后台预热(不与补分片抢连接)
           };
           // 先等首屏包(单文件), 到了再补分片 —— 否则两个请求抢带宽, 首屏反而更慢
-          if (pk) loadPack(t0, pk, 'gal', c0, after);
-          else after();
+          if (pks.length) {
+            var left = pks.length;
+            pks.forEach(function (nm) {
+              loadPack(t0, nm, 'gal', c0, function () { if (--left <= 0) after(); });
+            });
+          } else after();
         } else if (!state.done[t0]) {
           // 视频/文本等页签分片少(几个到几十个), 直接后台并发拉完, 边拉边刷
           streamChunks(t0, true);
@@ -613,6 +644,7 @@
       }
     };
 
+    syncKookBar();
     $('#popularLinks').innerHTML = items.filter(function (c) { return !c.virtual; }).slice(0, 9).map(function (c) {
       return '<a href="#" data-q="' + esc(c.label) + '">' + c.icon + ' ' + esc(c.label) + '</a>';
     }).join('');
@@ -637,6 +669,23 @@
       var g = $('#genderGroup');
       if (g) g.querySelectorAll('button').forEach(function (x, i) { x.classList.toggle('active', i === 0); });
     }
+  }
+
+  /* KOOK 栏目子筛选：只在 KOOK 分类下出现（全部 / 瑶光 / 如梦似幻…按钮由 manifest 动态生成） */
+  function syncKookBar() {
+    var bar = $('#kookBar');
+    if (!bar) return;
+    var show = state.tab === 'gal' && state.cat === KOOK_GROUP;
+    bar.hidden = !show;
+    if (!show) { state.kookSub = ''; return; }
+    var box = $('#kookGroup');
+    if (!box) return;
+    var html = '<button data-sub=""' + (state.kookSub ? '' : ' class="active"') + '>全部</button>';
+    kookKeys().forEach(function (k) {
+      html += '<button data-sub="' + esc(k) + '"' + (state.kookSub === k ? ' class="active"' : '') + '>' +
+        esc(kookLabel(k)) + '</button>';
+    });
+    box.innerHTML = html;
   }
 
   function selectCat(key) {
@@ -664,6 +713,9 @@
       // 「人像（全部）」= 跨全部分类的人像池（人像三类 + 其他分类里标题明确是人物的图）
       if (state.cat === PORTRAIT_ALL) {
         if (!isPortraitItem(p, effCat)) return false;
+      } else if (state.cat === KOOK_GROUP) {
+        if (!isKookKey(effCat)) return false;
+        if (state.kookSub && effCat !== state.kookSub) return false;
       } else if (state.cat && effCat !== state.cat) return false;
       // 男/女子筛选：识别不出的（''）只在「全部」显示，男/女视图里排除
       if (state.gender && genderOf(p) !== state.gender) return false;
@@ -811,6 +863,9 @@
     var catTotal = 0;
     if (state.cat === PORTRAIT_ALL) {
       catTotal = (state.manifest && state.manifest.portraitAllCount) || 0;
+    } else if (state.cat === KOOK_GROUP) {
+      var kc = (state.manifest && state.manifest.catCounts && state.manifest.catCounts.gal) || {};
+      kookKeys().forEach(function (k) { catTotal += kc[k] || 0; });
     } else if (state.cat && state.manifest && state.manifest.catCounts) {
       catTotal = (state.manifest.catCounts[state.tab] || {})[state.cat] || 0;
     }
@@ -820,12 +875,15 @@
       (stillLoading ? '，加载中…' : '') + '）';
     var active = $('#categoriesScroll .chip.active');
     var label = state.cat === PORTRAIT_ALL ? PORTRAIT_ALL_LABEL
+      : state.cat === KOOK_GROUP ? ('KOOK' + (state.kookSub ? ' · ' + kookLabel(state.kookSub) : ''))
       : (active ? active.textContent.replace(/[\d.]+[wk]?$/, '').trim() : '全部');
     $('#listTitle').firstChild.nodeValue = state.q ? '搜索“' + state.q + '”' : label;
     var gLabel = state.gender === 'F' ? '♀ 女性' : (state.gender === 'M' ? '♂ 男性' : '');
     var hintText = state.onlyRefs
       ? '只看带风格参考图的图片条目（点开卡片可看参考图）'
-      : (state.tab === 'gal' && state.cat === PORTRAIT_ALL
+      : (state.tab === 'gal' && state.cat === KOOK_GROUP
+        ? 'KOOK 站的两个栏目都在这（瑶光 / 如梦似幻），点上方「栏目」可以只看其中一个'
+        : state.tab === 'gal' && state.cat === PORTRAIT_ALL
         ? '已跨全站 42 个分类汇总人物图（写实 / 二次元 / 各模型分类里的人都在内），点上方「性别」再筛男女'
         : stillLoading && state.tab === 'gal'
         ? '⟳ 正在补充该分类的数据，数量会继续增长…'
@@ -1288,8 +1346,8 @@
   function catShardMatch(fname, cat) {
     // GPT 系列在数据侧已合并成一个 "GPT Image" 分类，条目来自 oi / wf / kook 三个来源
     if (cat === 'GPT Image') return /^(oi_gal_|wf_image_|kook_image_)/.test(fname);
-    // KOOK（原瑶光 / 如梦似幻合并）只落在 kook_image_* 分片
-    if (cat === 'kook') return /^kook_image_/.test(fname);
+    // KOOK（瑶光 / 如梦似幻，含折叠后的组）只落在 kook_image_* 分片
+    if (cat === KOOK_GROUP || isKookKey(cat)) return /^kook_image_/.test(fname);
     if (/^oi-/.test(cat)) return /^oi_gal_/.test(fname);
     if (/^wf-/.test(cat)) return /^wf_image_/.test(fname);
     if (/^kook-/.test(cat)) return /^kook_image_/.test(fname);
@@ -1487,9 +1545,9 @@
     stopStream(state.tab);   // 旧页签的后台预取别跟新页签抢带宽
     state.tab = tab;
     state.cat = ''; state.page = 1; state.q = ''; state.lang = ''; state.sort = 'newest';
-    state.onlyRefs = false; state.gender = '';
+    state.onlyRefs = false; state.gender = ''; state.kookSub = '';
     if ($('#refGroup')) $('#refGroup').querySelector('button').classList.remove('active');
-    syncGenderBar();
+    syncGenderBar(); syncKookBar();
     $('#searchInput').value = '';
     $('#langGroup').style.display = (tab === 'gal' || tab === 'vibe' || tab === 'h3') ? 'none' : '';
     // 只有视频/Vibe 页有视频卡片, 自动播放开关就在那儿出现
@@ -1732,6 +1790,14 @@
       state.sort = b.dataset.sort; state.page = 1; apply();
     });
 
+    // KOOK 栏目子筛选（仅 KOOK 分类可见）
+    if ($('#kookGroup')) $('#kookGroup').addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-sub]');
+      if (!b) return;
+      state.kookSub = b.dataset.sub; state.page = 1;
+      syncKookBar(); apply();
+    });
+
     // 人像性别子筛选（仅人像分类可见）
     if ($('#genderGroup')) $('#genderGroup').addEventListener('click', function (e) {
       var b = e.target.closest('button[data-gender]');
@@ -1813,10 +1879,10 @@
     $('#logoLink').addEventListener('click', function (e) {
       e.preventDefault();
       state.cat = ''; state.q = ''; state.lang = ''; state.page = 1; state.sort = 'newest';
-      state.onlyRefs = false; state.gender = '';
+      state.onlyRefs = false; state.gender = ''; state.kookSub = '';
       if ($('#refGroup')) $('#refGroup').querySelector('button').classList.remove('active');
       if ($('#genderGroup')) $('#genderGroup').querySelectorAll('button').forEach(function (x, i) { x.classList.toggle('active', i === 0); });
-      syncGenderBar();
+      syncGenderBar(); syncKookBar();
       $('#searchInput').value = '';
       $('#langGroup').querySelectorAll('button').forEach(function (x, i) { x.classList.toggle('active', i === 0); });
       $('#sortGroup').querySelectorAll('button').forEach(function (x, i) { x.classList.toggle('active', i === 0); });
