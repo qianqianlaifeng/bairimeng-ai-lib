@@ -48,6 +48,47 @@ def slug(cat):
     return "cp_" + hashlib.md5(cat.encode("utf-8")).hexdigest()[:10]
 
 
+# 「日期最新」首屏排序：和 app.js itemDate 保持一致。
+# 只认 ① 行尾 time 字段(KOOK 等) ② X/Twitter 雪花 ID ③ wf/oi/h3 编号里写死的日期。
+# g-/lp-/hv- 老数据 ID 里的 6 位随机数字不当日期, 否则会被误读成 2035 年假日期霸占前排。
+_SNOW_EPOCH = 1288834974657
+
+
+def _item_date(r):
+    import re as _re
+    from datetime import datetime as _dt, timezone as _tz
+    rid = str(r[0])
+    t = str(r[7]) if len(r) > 7 else ""
+    if _re.match(r"^\d{4}-\d{2}-\d{2}", t):
+        try:
+            return _dt.strptime(t[:10], "%Y-%m-%d").replace(tzinfo=_tz.utc).timestamp()
+        except Exception:
+            pass
+    m = _re.search(r"(?:^|[^0-9])((?:1|2)[0-9]{18})(?:[^0-9]|$)", rid)
+    if m:
+        try:
+            d = _dt.fromtimestamp((int(m.group(1)) / 4194304 + _SNOW_EPOCH) / 1000, tz=_tz.utc)
+            if 2015 <= d.year <= 2035:
+                return d.timestamp()
+        except Exception:
+            pass
+    if _re.match(r"^(wf|kook|oi|h3)-", rid):
+        m = _re.search(r"(?:^|[^0-9])(20[0-9]{6})(?:[^0-9]|$)", rid)
+        if not m:
+            m = _re.search(r"(?:^|[^0-9])([0-9]{2})([0-9]{2})([0-9]{2})(?:[^0-9]|$)", rid)
+        if m:
+            try:
+                if len(m.group(1)) == 8:
+                    y, mo, da = int(m.group(1)[:4]), int(m.group(1)[4:6]), int(m.group(1)[6:8])
+                else:
+                    y, mo, da = 2000 + int(m.group(1)), int(m.group(2)), int(m.group(3))
+                if 2015 <= y <= 2035 and 1 <= mo <= 12 and 1 <= da <= 31:
+                    return _dt(y, mo, da, tzinfo=_tz.utc).timestamp()
+            except Exception:
+                pass
+    return 0
+
+
 def main():
     rows = load_shards()
     if not rows:
@@ -67,8 +108,12 @@ def main():
         pack[cat] = name
         written += 1
 
+    # 「全部」首屏按发布日期倒序取最新的 ALL_LIMIT 条：
+    # 让默认「日期最新」第一眼就是真正的新内容(11 月), 而不是来源顺序里的老 wf 数据(5 月)。
+    # 无日期的行排在后面, 并保持原顺序不跳动。
+    all_sorted = sorted(rows, key=_item_date, reverse=True)
     with open(os.path.join(DATA, "cp_all.json"), "w", encoding="utf-8") as f:
-        json.dump(rows[:ALL_LIMIT], f, ensure_ascii=False, separators=(",", ":"))
+        json.dump(all_sorted[:ALL_LIMIT], f, ensure_ascii=False, separators=(",", ":"))
 
     mp = os.path.join(DATA, "manifest.json")
     with open(mp, encoding="utf-8") as f:

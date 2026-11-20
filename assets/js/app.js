@@ -362,12 +362,18 @@
     if (p._date != null) return p._date;
     var d = 0;
     var t = String(p.time || '');
+    var id = String(p.id || '');
+    // 1) 快照自带的真实发布日期（KOOK 等），最可信
     if (/^[0-9]{4}-[0-9]{2}-[0-9]{2}/.test(t)) {
       var parsed = Date.parse(t.slice(0, 10));
       if (!isNaN(parsed)) d = parsed;
     }
-    if (!d) d = dateFromSnowflake(String(p.id || ''));
-    if (!d) d = dateFromId(String(p.id || ''));
+    // 2) X/Twitter 雪花 ID 还原的发帖时间（oi-/h3-x- 等）
+    if (!d) d = dateFromSnowflake(id);
+    // 3) 编号里写死的日期（wf-arc-YYMMDD / wf-own-xxxx-YYYYMMDD）
+    //    只对明确带日期段的前缀解析；g-/lp-/hv- 这类老数据 ID 里的 6 位
+    //    随机数字会被误读成 2035 年假日期、霸占「日期最新」前排，必须跳过。
+    if (!d && /^(wf|kook|oi|h3)-/.test(id)) d = dateFromId(id);
     p._date = d || 0;
     return p._date;
   }

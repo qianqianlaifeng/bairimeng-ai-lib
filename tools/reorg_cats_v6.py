@@ -37,6 +37,9 @@ APPLY = '--apply' in sys.argv
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import purify_portrait_v4 as V4            # noqa: E402
 from purify_portrait_v4 import portrait_score, has_person_subject, _s, FACE_RELATED  # noqa: E402
+# 「全部」首屏按发布日期倒序——和 app.js itemDate / build_catpack 保持同一套规则，
+# 防止每日刷新时这里把 cp_all 覆盖回来源顺序(旧的 5 月数据排在 11 月前面)。
+from build_catpack import _item_date as _item_date  # noqa: E402
 
 PORTRAIT_CATS = ('人像写真', '人像人物', '人像动漫')
 # KOOK 两个栏目的显示名（数据里的键在每日同步脚本里固定）
@@ -337,9 +340,10 @@ def main():
             with open(os.path.join(DATA, name + '.json'), 'w', encoding='utf-8') as fh:
                 json.dump(ranked, fh, ensure_ascii=False, separators=(',', ':'))
 
+    all_sorted = sorted(rows, key=_item_date, reverse=True)
     if APPLY:
         with open(os.path.join(DATA, 'cp_all.json'), 'w', encoding='utf-8') as fh:
-            json.dump(rows[:120], fh, ensure_ascii=False, separators=(',', ':'))
+            json.dump(all_sorted[:120], fh, ensure_ascii=False, separators=(',', ':'))
 
     # 「人像（全部）」首屏包：跨全部分类抽人像，按桶轮流取，首屏风格混杂不会一边倒
     cand = [r for r in rows if len(r) > 3 and is_portrait_like(r)]
@@ -400,7 +404,7 @@ def main():
     for k in sorted(pack.keys()):
         sig.update(('%s|%s' % (k, pack[k])).encode('utf-8'))
     sig.update(json.dumps(cand_ranked, ensure_ascii=False).encode('utf-8'))
-    sig.update(json.dumps(rows[:120], ensure_ascii=False).encode('utf-8'))
+    sig.update(json.dumps(all_sorted[:120], ensure_ascii=False).encode('utf-8'))
     man['packsSig'] = sig.hexdigest()[:8]
     if APPLY:
         with open(mp, 'w', encoding='utf-8') as fh:
