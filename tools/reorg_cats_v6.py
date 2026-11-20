@@ -220,7 +220,8 @@ def main():
             if len(r) < 6:
                 continue
             cat = _s(r[3])
-            if cat in GPT_KEYS:
+            # 任何 GPT 系模型键都并进来（以后源站新增 "GPT Image 3" 之类也不会再拆开）
+            if cat != GPT_CAT and (cat in GPT_KEYS or 'gpt' in cat.lower()):
                 r[3] = GPT_CAT
                 gpt_n += 1
                 dirty = True
@@ -300,7 +301,7 @@ def main():
     man = json.load(open(mp, encoding='utf-8'))
     cats_meta = dict(man.get('galCats') or {})
     for k in list(cats_meta.keys()):
-        if k in GPT_KEYS:
+        if k in GPT_KEYS or 'gpt' in k.lower():
             del cats_meta[k]
     cats_meta[GPT_CAT] = [GPT_CAT, GPT_ICON]
     man['galCats'] = cats_meta
