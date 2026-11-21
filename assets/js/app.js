@@ -69,6 +69,13 @@
     if (hi !== -1) r.hidden.splice(hi, 1);
     saveReports();
   }
+  function undoReport(id) {
+    var r = loadReports();
+    var hi = r.hidden.indexOf(id);
+    if (hi !== -1) r.hidden.splice(hi, 1);
+    if (r.recat[id]) delete r.recat[id];
+    saveReports();
+  }
   function clearReports() {
     reportCache = { hidden: [], recat: {} };
     saveReports();
@@ -292,11 +299,23 @@
     if (n >= 1000) return (n / 1000).toFixed(1).replace('.0', '') + 'k';
     return String(n);
   }
-  function toast(m) {
+  function toast(m, act) {
     var t = $('#toast');
-    t.textContent = m; t.style.opacity = '1'; t.style.transform = 'translate(-50%,0)';
+    t.textContent = '';
+    t.appendChild(document.createTextNode(m));
+    t.style.pointerEvents = act ? 'auto' : 'none';
+    if (act) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'toast-act'; b.textContent = act.label;
+      b.addEventListener('click', function () {
+        act.onClick();
+        t.style.opacity = '0'; t.style.transform = 'translate(-50%,20px)';
+      });
+      t.appendChild(b);
+    }
+    t.style.opacity = '1'; t.style.transform = 'translate(-50%,0)';
     clearTimeout(t._tid);
-    t._tid = setTimeout(function () { t.style.opacity = '0'; t.style.transform = 'translate(-50%,20px)'; }, 1800);
+    t._tid = setTimeout(function () { t.style.opacity = '0'; t.style.transform = 'translate(-50%,20px)'; }, act ? 5000 : 1800);
   }
   function busy(on, msg) {
     $('#loading').style.display = on ? '' : 'none';
@@ -578,8 +597,8 @@
     p._pt = PERSON_TITLE.test(String(p.title || '').slice(0, 40));
     return p._pt;
   }
-  function isPortraitItem(p, effCat) {
-    return isPortraitCat(effCat || p.cat) || titleHasPerson(p);
+  function isPortraitItem(p) {
+    return isPortraitCat(p.cat) || titleHasPerson(p);
   }
 
   var FEM_WORDS = ['女','女孩','女人','女性','少女','女士','她','新娘','妈妈','母亲','姐姐','妹妹','阿姨','姑娘','奶奶','外婆','女儿','嫂','美女','女神','女仆','妻子','老婆','女生','大小姐','御姐','woman','women','girl','female','lady','she','her','bride','actress','princess','queen','mom','mother'];
@@ -866,8 +885,12 @@
       // 本地纠错：用户把这图转移到别的分类后，按"有效分类"判断
       var effCat = recat[p.id] || p.cat;
       // 「人像（全部）」= 跨全部分类的人像池（人像三类 + 其他分类里标题明确是人物的图）
+      // 注意：被本地转移过的图必须严格按"目标分类"判定 —— 不能再靠标题兜底，
+      // 否则转移到插画漫画后仍会因标题里有"女人/女孩"留在本视图（用户看到的 bug）。
       if (state.cat === PORTRAIT_ALL) {
-        if (!isPortraitItem(p, effCat)) return false;
+        if (recat[p.id]) {
+          if (!isPortraitCat(effCat)) return false;
+        } else if (!isPortraitItem(p)) return false;
       } else if (state.cat === KOOK_GROUP) {
         if (!isKookKey(effCat)) return false;
         if (state.kookSub && effCat !== state.kookSub) return false;
@@ -1282,6 +1305,10 @@
     $('#reportMask').setAttribute('aria-hidden', 'true');
     document.body.style.overflow = '';
     reportId = '';
+  }
+  function shortTitle(p) {
+    var s = String(p.title || p.catLabel || p.id || '这张图').replace(/\s+/g, ' ').trim();
+    return s.length > 16 ? s.slice(0, 16) + '…' : s;
   }
   function reportFeedbackText(p, action, targetCat) {
     var man = state.manifest || {};
@@ -1936,28 +1963,37 @@
       if (e.key === 'Escape' && $('#reportMask') && $('#reportMask').classList.contains('open')) closeReport();
     });
     if ($('#reportHide')) $('#reportHide').addEventListener('click', function () {
-      var p = findItem(reportId);
+      var id = reportId;
+      var p = findItem(id);
       if (!p) return closeReport();
       var txt = reportFeedbackText(p, 'hide');
-      addHidden(reportId);
+      var short = shortTitle(p);
+      addHidden(id);
       closeReport();
       apply();               // 立刻从列表移除
-      toast('已隐藏这张图 · 设置里可恢复');
+      toast('已隐藏「' + short + '」', {
+        label: '撤销', onClick: function () { undoReport(id); apply(); toast('已恢复「' + short + '」'); }
+      });
       try { copyText(txt); } catch (e) {}
     });
     if ($('#reportMove')) $('#reportMove').addEventListener('click', function () {
-      var p = findItem(reportId);
+      var id = reportId;
+      var p = findItem(id);
       if (!p) return closeReport();
       var sel = $('#reportCatSelect');
       var target = sel && sel.value;
       if (!target) { $('#reportHint').textContent = '请先选择一个正确的分类'; return; }
       var txt = reportFeedbackText(p, 'recat', target);
-      addRecat(reportId, target);
+      var short = shortTitle(p);
+      if (target === p.cat) undoReport(id);   // 选回原分类 = 撤销转移
+      else addRecat(id, target);
       closeReport();
       apply();               // 从当前分类移除（在目标分类里出现）
       var man = state.manifest || {};
       var lab = ((man.galCats || {})[target] || [target])[0];
-      toast('已转移到「' + lab + '」· 设置里可恢复');
+      toast('已转移「' + short + '」→「' + lab + '」', {
+        label: '撤销', onClick: function () { undoReport(id); apply(); toast('已恢复「' + short + '」到原分类'); }
+      });
       try { copyText(txt); } catch (e) {}
     });
     if ($('#reportCopy')) $('#reportCopy').addEventListener('click', function () {

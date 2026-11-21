@@ -833,3 +833,11 @@ html.is-dark .card-cover .fav-btn { background: rgba(0, 0, 0, .45); }
 html.is-dark .card-cover .fav-btn.is-fav { background: rgba(0, 0, 0, .6); }
 /* 弹窗里的收藏按钮: 已收藏给金色描边 */
 #favBtn.is-fav { color: #e8b93c; border-color: #e8b93c; }
+
+/* 举报/转移后的提示条：点名被操作的图，并提供就地撤销 */
+.toast-act {
+  margin-left: 12px; padding: 3px 11px; border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, .42); background: rgba(255, 255, 255, .08);
+  color: #fff; font-size: 12px; line-height: 1.2; cursor: pointer;
+}
+.toast-act:hover { background: rgba(255, 255, 255, .2); }
