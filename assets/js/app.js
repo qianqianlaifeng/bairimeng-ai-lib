@@ -445,6 +445,9 @@
   function expandGal(r) {
     var m = state.manifest;
     var c = (m.galCats || {})[r[3]] || ['综合其他', '✨'];
+    /* 即梦行第 9/10 字段: 画面主体是否是人(1/0) + 性别('F'/'M'/'')。
+       来自抓取时的逐张判定, 前端不再靠标题猜——这是「即梦·人像」和 ♀/♂ 的数据口径。 */
+    var isJm = /^jimeng-/.test(String(r[3] || ''));
     return {
       id: r[0], kind: 'image', gal: true, title: r[1], body: r[2], cat: r[3],
       catLabel: c[0], catIcon: c[1], desc: r[4], cover: r[5],
@@ -452,7 +455,11 @@
       chars: r[2].length, isJson: false, license: '', url: '',
       source: 'gal', fb: 'assets/img/cat-others.jpg', refs: r[6] || [],
       /* KOOK 三个最新分类在快照里补了第 8 字段: 发布时间 YYYY-MM-DD */
-      time: r[7] || ''
+      time: r[7] || '',
+      jimeng: isJm,
+      /* 人像标记只在数据层明确给了 0/1 时生效; 其他来源为 undefined(走原有标题兜底逻辑) */
+      portraitFlag: isJm ? (r[8] === 1 ? 1 : (r[8] === 0 ? 0 : null)) : null,
+      pgender: isJm ? String(r[9] || '') : ''
     };
   }
   /* 「日期最新」用的发布日期。图片和视频统一按这个倒序：
@@ -564,13 +571,14 @@
   function isKookKey(k) { return /^kook-/.test(String(k || '')); }
   /* 即梦(jimeng-*): 独立数据源, 未登录公开探索页抓的图文作品。 */
   function isJimengKey(k) { return /^jimeng-/.test(String(k || '')); }
-  // 即梦组内展示顺序: 平面设计 -> 电商 -> 其他(固定顺序, 不随条数变)
+  // 即梦组内展示顺序: 人像 -> 平面设计 -> 电商 -> 其他(固定顺序, 不随条数变)
   function jimengRank(c) {
     var k = String((c && c.key) || '');
-    if (k === 'jimeng-平面设计') return 0;
-    if (k === 'jimeng-电商') return 1;
-    if (k === 'jimeng-其他') return 2;
-    return 3;
+    if (k === JIMENG_PORTRAIT) return 0;   // 人像排最前(最常用)
+    if (k === 'jimeng-平面设计') return 1;
+    if (k === 'jimeng-电商') return 2;
+    if (k === 'jimeng-其他') return 3;
+    return 4;
   }
   function kookKeys() {
     var cats = (state.manifest && state.manifest.galCats) || {};
@@ -585,6 +593,13 @@
   var PORTRAIT_ALL_LABEL = '人像（全部）';
   var PORTRAIT_KEYS = { '人像写真': 1, '人像人物': 1, '人像动漫': 1 };
   function isPortraitCat(key) { return !!PORTRAIT_KEYS[key]; }
+
+  /* 即梦·人像：即梦三个分类(平面设计/电商/其他)里画面主体是人的作品。
+     它是"虚拟分类"——条目不搬走, 人像照仍在原分类里, 这里只是另一个视图,
+     跟前端拿标题猜性别完全不同: 用的是抓取时逐张看画面打上的第 9/10 字段。 */
+  var JIMENG_PORTRAIT = 'jimeng-人像';
+  function isJimengPortraitKey(k) { return k === JIMENG_PORTRAIT; }
+  function isJimengPortraitItem(p) { return p.jimeng === true && p.portraitFlag === 1; }
   // 标题里明确是"人"的词 —— 用来把散落在其他分类里的人物图也收进「人像（全部）」
   var PERSON_TITLE = new RegExp(
     '女人|男人|女孩|男孩|女性|男性|少女|少年|女士|先生|模特|新娘|新郎|老人|小孩|儿童|婴儿|' +
@@ -656,6 +671,13 @@
   }
   function genderOf(p) {
     if (p._g != null) return p._g;
+    /* 即梦条目用抓取时的画面判定结果（第 10 字段），不再拿标题猜：
+       人像照的标题常常是"南宫婉，质感，细闪珠光…"这种纯风格词，靠文本会把
+       男女判反或判漏。数据层没给出结论的仍回落到文本识别。 */
+    if (p.jimeng && p.portraitFlag === 1) {
+      p._g = p.pgender || '';
+      return p._g;
+    }
     var g = detectGender(p.title) || detectGenderBody(p.body);
     p._g = g;
     return g;
@@ -673,6 +695,7 @@
   }
 
   var CHIP_TITLE = {
+    'jimeng-人像': '即梦三个分类里的人像视图（逐张看画面判定，不是靠标题猜）· 点进去可按 ♀ / ♂ 筛',
     'kook': 'KOOK（瑶光 / 如梦似幻 合在这里，点进去可再按栏目筛）',
     'GPT Image': 'GPT 系列全部合并在这里（GPT Image / 2 / 2.5 / 2.6 / GPT-6 Astra）'
   };
@@ -699,6 +722,11 @@
     // 「人像（全部）」不是真分类：它跨全部 42 个分类抓人物图，专门给 ♀/♂ 筛选当池子。
     // 条数来自 manifest.portraitAllCount（数据侧统计），不参与「全部」的总数求和。
     if (state.tab === 'gal') {
+      // 即梦·人像：即梦三个分类里的人像视图（条数来自数据层逐张判定）
+      var jpTotal = (state.manifest && state.manifest.jimengPortraitCount) || 0;
+      if (jpTotal) items.push({
+        key: JIMENG_PORTRAIT, label: '即梦·人像', icon: '👤', n: jpTotal, virtual: true, jimengPortrait: true
+      });
       var paTotal = (state.manifest && state.manifest.portraitAllCount) || 0;
       if (paTotal) items.push({ key: PORTRAIT_ALL, label: PORTRAIT_ALL_LABEL, icon: '👤', n: paTotal, virtual: true });
       // KOOK：把瑶光 / 如梦似幻两个键折叠成一个芯片（条数合计）
@@ -714,7 +742,7 @@
       // 「综合精选」第一；其后人像组(写真→人物→动漫)连续排列；再是最新收录；其余按条数降序。
       function rank(c) {
         if (c.key === '综合精选' || c.label === '综合精选') return 0;
-        if (isJimengKey(c.key)) return 1;
+        if (isJimengKey(c.key)) return 1;   // 「即梦·人像」也在即梦组内(组内排第一)
         if (isPortrait(c)) return 2;
         if (isNewCat(c.key)) return 3;
         return 4;
@@ -722,7 +750,7 @@
       var d = rank(a) - rank(b);
       if (d) return d;
       if (isPortrait(a) && isPortrait(b)) return portraitRank(a) - portraitRank(b);
-      // 即梦组内固定顺序: 平面设计 -> 电商 -> 其他(不按条数排)
+      // 即梦组内固定顺序: 人像 -> 平面设计 -> 电商 -> 其他(不按条数排)
       if (isJimengKey(a.key) && isJimengKey(b.key)) return jimengRank(a) - jimengRank(b);
       return b.n - a.n;
     });
@@ -774,7 +802,10 @@
           // KOOK 是"折叠"出来的分类：要把它下面每个栏目的首屏包都拉一遍
           var pks = c0 === KOOK_GROUP
             ? kookKeys().map(function (k) { return cpMap[k]; }).filter(Boolean)
-            : (cpMap[c0] ? [cpMap[c0]] : []);
+            : (c0 === JIMENG_PORTRAIT
+              // 即梦·人像有自己的跨分类人像包（数据层产出），比 cp_* 更全
+              ? [(man && man.jimengPortraitPack) || 'jimeng_portrait']
+              : (cpMap[c0] ? [cpMap[c0]] : []));
           pauseWarmup();   // 用户点了分类: 立刻掐掉后台预热, 把 6 个 CDN 连接让给"被点的分类包"
           var after = function () {
             if (state.tab === t0 && state.cat === c0) pullForCat(t0, c0);
@@ -816,8 +847,15 @@
   function syncGenderBar() {
     var bar = $('#genderBar');
     if (!bar) return;
-    var show = state.tab === 'gal' && (state.cat === PORTRAIT_ALL || isPortraitCat(state.cat));
+    var show = state.tab === 'gal' &&
+      (state.cat === PORTRAIT_ALL || state.cat === JIMENG_PORTRAIT || isPortraitCat(state.cat));
     bar.hidden = !show;
+    /* 口径写清楚：即梦·人像是逐张看画面判定的，其他人像分类仍是标题+提示词识别。
+       用户看到"识别不出"时不至于以为是漏数据。 */
+    var hint = bar.querySelector('.gender-bar-hint');
+    if (hint) hint.textContent = state.cat === JIMENG_PORTRAIT
+      ? '按画面逐张判定（不是靠标题猜）· 多人 / 背影 / 剪影不判男女，保留在「全部」'
+      : '按标题 + 提示词智能识别，识别不出的保留在「全部」';
     if (!show && state.gender) {
       state.gender = '';
       var g = $('#genderGroup');
@@ -887,7 +925,10 @@
       // 「人像（全部）」= 跨全部分类的人像池（人像三类 + 其他分类里标题明确是人物的图）
       // 注意：被本地转移过的图必须严格按"目标分类"判定 —— 不能再靠标题兜底，
       // 否则转移到插画漫画后仍会因标题里有"女人/女孩"留在本视图（用户看到的 bug）。
-      if (state.cat === PORTRAIT_ALL) {
+      if (state.cat === JIMENG_PORTRAIT) {
+        // 即梦·人像 = 即梦三个分类里「画面主体是人」的作品（数据层第 9 字段）
+        if (!isJimengPortraitItem(p)) return false;
+      } else if (state.cat === PORTRAIT_ALL) {
         if (recat[p.id]) {
           if (!isPortraitCat(effCat)) return false;
         } else if (!isPortraitItem(p)) return false;
@@ -1048,6 +1089,8 @@
     var catTotal = 0;
     if (state.cat === PORTRAIT_ALL) {
       catTotal = (state.manifest && state.manifest.portraitAllCount) || 0;
+    } else if (state.cat === JIMENG_PORTRAIT) {
+      catTotal = (state.manifest && state.manifest.jimengPortraitCount) || 0;
     } else if (state.cat === KOOK_GROUP) {
       var kc = (state.manifest && state.manifest.catCounts && state.manifest.catCounts.gal) || {};
       kookKeys().forEach(function (k) { catTotal += kc[k] || 0; });
@@ -1060,6 +1103,7 @@
       (stillLoading ? '，加载中…' : '') + '）';
     var active = $('#categoriesScroll .chip.active');
     var label = state.tab === 'fav' ? ('我的收藏 · ' + (state.favKind === 'video' ? '视频' : '图片'))
+      : state.cat === JIMENG_PORTRAIT ? '即梦·人像'
       : state.cat === PORTRAIT_ALL ? PORTRAIT_ALL_LABEL
       : state.cat === KOOK_GROUP ? ('KOOK' + (state.kookSub ? ' · ' + kookLabel(state.kookSub) : ''))
       : (active ? active.textContent.replace(/[\d.]+[wk]?$/, '').trim() : '全部');
@@ -1071,6 +1115,8 @@
       ? '只看带风格参考图的图片条目（点开卡片可看参考图）'
       : (state.tab === 'gal' && state.cat === KOOK_GROUP
         ? 'KOOK 站的两个栏目都在这（瑶光 / 如梦似幻），点上方「栏目」可以只看其中一个'
+        : state.tab === 'gal' && state.cat === JIMENG_PORTRAIT
+        ? '即梦作品里画面主体是人（真人 / 动漫 / 角色设定都算）· 点上方「性别」只看 ♀ 或 ♂ · 多人、背影、剪影不判男女'
         : state.tab === 'gal' && state.cat === PORTRAIT_ALL
         ? '已跨全站 42 个分类汇总人物图（写实 / 二次元 / 各模型分类里的人都在内），点上方「性别」再筛男女'
         : stillLoading && state.tab === 'gal'
@@ -1570,6 +1616,7 @@
     if (cat === 'GPT Image') return /^(oi_gal_|wf_image_|kook_image_)/.test(fname);
     // KOOK（瑶光 / 如梦似幻，含折叠后的组）只落在 kook_image_* 分片
     if (cat === KOOK_GROUP || isKookKey(cat)) return /^kook_image_/.test(fname);
+    // 即梦·人像是虚拟分类：条目还在 jimeng_gal_* 分片里，按第 9 字段筛
     if (isJimengKey(cat)) return /^jimeng_gal_/.test(fname);
     if (/^oi-/.test(cat)) return /^oi_gal_/.test(fname);
     if (/^wf-/.test(cat)) return /^wf_image_/.test(fname);
@@ -1596,8 +1643,9 @@
     var loaded = state.chunks[tab];
     // 「人像（全部）」要把全站各来源都翻一遍, 配额比单个分类大得多
     var allPortrait = cat === PORTRAIT_ALL;
-    var maxShard = allPortrait ? 8 : CAT_SHARD_MAX;
-    var maxRow = allPortrait ? 3000 : CAT_ROW_MAX;
+    var jmPortrait = cat === JIMENG_PORTRAIT;
+    var maxShard = (allPortrait || jmPortrait) ? 8 : CAT_SHARD_MAX;
+    var maxRow = allPortrait ? 3000 : (jmPortrait ? 1200 : CAT_ROW_MAX);
     var all = shards(tab).filter(function (d, idx) { return idx >= loaded; });
     // 人像主要沉在 gal_* 分片（中文分类）里，先在那边翻，再补 wf/oi/kook
     if (allPortrait) {

@@ -103,6 +103,7 @@ jobs:
           pip install --quiet playwright
           python tools/fetch_jimeng.py
           python tools/build_jimeng.py
+          python tools/build_jimeng_packs.py data
       - name: 同步最新收录三类作品(新作品 + 完整提示词)
         # 这三类的全文要走登录态接口, Cookie 存在仓库 Secret(KOOK_COOKIE)。
         # kook_auth 会自己判断过期并用 KOOK_USER/KOOK_PASS 重新登录，无需人工续期。

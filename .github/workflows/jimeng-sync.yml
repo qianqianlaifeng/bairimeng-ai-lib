@@ -1,0 +1,67 @@
+name: 即梦高频同步（含人像/性别重算）
+
+# 即梦探索页更新很快，但整站 refresh.yml 每晚只跑一次（要拖 1 小时+）。
+# 这里只跑即梦这一条链路：
+#   fetch_jimeng.py  抓探索页三个分类（签名直链有有效期，不重抓会 403）
+#   build_jimeng.py  重建分片 + 逐条重算「人像 / 性别」+ 出即梦人像包
+#   build_jimeng_packs.py  只重切即梦自己的分类首屏包（不动别的分类）
+# 人像与性别随每次抓取重算：新增作品最晚 2 小时就进「即梦·人像」，
+# 不需要人工补标；人工逐张核过的 ID 由 tools/jimeng_portrait_labels.json 固化，
+# 刷新不会把它冲掉。
+on:
+  schedule:
+    - cron: '25 */2 * * *'   # 每 2 小时一次（UTC 偶数小时 25 分）
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: jimeng-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 安装依赖
+        run: pip install --quiet playwright
+      - name: 抓即梦探索页 + 重算人像分类
+        # 抓取失败不阻塞：旧分片仍在，人像标签也照旧，不会出现空分类。
+        continue-on-error: true
+        env:
+          GAL_OUTDIR: ${{ github.workspace }}/data
+        run: |
+          python tools/fetch_jimeng.py
+          python tools/build_jimeng.py
+          python tools/build_jimeng_packs.py data
+      - name: 同步 data 版本号(缓存击穿)
+        run: |
+          python - <<'EOF'
+          import hashlib, re
+          ver = hashlib.md5(open('data/manifest.json','rb').read()).hexdigest()[:8]
+          p = 'assets/js/config.js'
+          s = open(p, encoding='utf-8').read()
+          s2 = re.sub(r"DATA_VER: '[^']*'", "DATA_VER: '%s'" % ver, s)
+          open(p, 'w', encoding='utf-8').write(s2)
+          h = hashlib.md5(open(p,'rb').read()).hexdigest()[:8]
+          t = open('index.html', encoding='utf-8').read()
+          t = re.sub(r"assets/js/config\.js(\?v=[0-9a-f]+)?", "assets/js/config.js?v=" + h, t)
+          open('index.html', 'w', encoding='utf-8').write(t)
+          print('DATA_VER =', ver, '| config.js?v=' + h)
+          EOF
+      - name: 提交改动
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "即梦数据无变化"
+          else
+            git commit -m "chore: 同步即梦作品并重算人像/性别"
+            git push
+          fi

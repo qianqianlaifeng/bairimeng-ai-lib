@@ -3,22 +3,31 @@
 """
 把 .cache/jimeng_raw.json 转成前端 gal 分片格式(jimeng_gal_*.json)并并入 manifest。
 
-行格式与 expandGal 一致: [id, title, body, cat, desc, cover, refs, time]
-  - body  = 完整提示词
-  - cat   = jimeng-<分类名>(如 jimeng-平面设计)
-  - desc  = 作者名
-  - time  = 发布时间 YYYY-MM-DD(用于「日期最新」排序)
-  - cover = 即梦签名原图直链
+行格式与 expandGal 一致: [id, title, body, cat, desc, cover, refs, time, portrait, gender]
+  - body     = 完整提示词
+  - cat      = jimeng-<分类名>(如 jimeng-平面设计)
+  - desc     = 作者名
+  - time     = 发布时间 YYYY-MM-DD(用于「日期最新」排序)
+  - cover    = 即梦签名原图直链
+  - portrait = 1 画面主体是人 / 0 不是(供「即梦·人像」用)
+  - gender   = 'F' 女 / 'M' 男 / '' 认不出(多人、背影、剪影一律留空)
 
 分类作为独立分组显示在分类栏(带 🆕 标记), 不混入原有中文分类。
+另外产出「即梦·人像」首屏包 jimeng_portrait.json: 跨平面设计/电商/其他三个
+分类收全部人像, 单独给 ♀/♂ 筛选用。人像/性别逐条判定见 jimeng_gender.py,
+每天随抓取重算 —— 新增作品当天就会进人像分类, 不需要人工补。
 可重复运行(幂等): 每轮重建 jimeng 分片并同步 manifest 计数。
 """
 import os
 import re
+import sys
 import json
 import glob
 import hashlib
 from datetime import datetime, timezone
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import jimeng_gender  # noqa: E402  人像/性别判定(人工标签优先, 其次文案兜底)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -29,6 +38,7 @@ LABELS = os.path.join(HERE, "jimeng_visual_labels_by_id.json")
 CHUNK = 600
 
 CAT_ICON = {
+    "jimeng-人像": ["即梦·人像", "👤"],
     "jimeng-平面设计": ["即梦·平面设计", "🆕"],
     "jimeng-电商": ["即梦·电商", "🛍️"],
     "jimeng-动画动漫": ["即梦·动漫", "🎬"],
@@ -79,6 +89,7 @@ def main():
 
     # 转为 gal 行格式
     gal = []
+    p_n = g_f = g_m = 0
     for r in rows:
         rid = r.get("id") or ("jm-" + hashlib.md5(((r.get("title") or "") + (r.get("cover") or "")).encode()).hexdigest()[:12])
         cat = r.get("cat") or "jimeng-其他"
@@ -93,9 +104,20 @@ def main():
         cover = r.get("cover") or ""
         if not cover:
             continue
+        # 人像 / 性别：人工逐张看图的标签优先，新作品用文案兜底（每天重算）
+        portrait, gender = jimeng_gender.label_for(rid, title, prompt)
+        if portrait:
+            p_n += 1
+            if gender == "F":
+                g_f += 1
+            elif gender == "M":
+                g_m += 1
+        else:
+            gender = ""
         gal.append([
             rid,
-            title, prompt, cat, desc, cover, [], ts_to_date(r.get("ctime"))
+            title, prompt, cat, desc, cover, [], ts_to_date(r.get("ctime")),
+            portrait, gender
         ])
     if overridden:
         print("按视觉判定回填分类: %d 条" % overridden)
@@ -113,6 +135,13 @@ def main():
     for i, ch in enumerate(chunks):
         with open(os.path.join(DATA, "jimeng_gal_%d.json" % i), "w", encoding="utf-8") as f:
             json.dump(ch, f, ensure_ascii=False, separators=(",", ":"))
+
+    # ---- 「即梦·人像」首屏包 ----
+    # 人像是跨三个分类抽出来的虚拟分类：平面设计/电商/其他里都有人物图。
+    # 单独出一个包，点「即梦·人像」不用等全部分片就能出图（和分类首屏包同机制）。
+    portrait_rows = [r for r in gal if len(r) > 8 and r[8]]
+    with open(os.path.join(DATA, "jimeng_portrait.json"), "w", encoding="utf-8") as f:
+        json.dump(portrait_rows, f, ensure_ascii=False, separators=(",", ":"))
 
     # ---- 更新 manifest ----
     m = json.load(open(MANI, encoding="utf-8"))
@@ -142,8 +171,17 @@ def main():
     m.setdefault("sources", {})["jimeng"] = ["即梦AI 创作社区", "https://jimeng.jianying.com/ai-tool/explore"]
     m["jimengGalCount"] = len(gal)
 
+    # ---- 人像 / 性别 计数 ----
+    # 「即梦·人像」是跨分类的虚拟分类（条目本身仍属于平面设计/电商/其他），
+    # 所以只记人像口径的计数，不并进 galCats / catCounts，避免总数被重复累加。
+    m["jimengPortraitCount"] = p_n
+    m["jimengPortraitF"] = g_f
+    m["jimengPortraitM"] = g_m
+    m["jimengPortraitPack"] = "jimeng_portrait"
+
     json.dump(m, open(MANI, "w", encoding="utf-8"), ensure_ascii=False)
     print("jimeng 分片 %d 个 / %d 条, 分类: %s" % (len(chunks), len(gal), dict(cc)))
+    print("人像 %d 条 (♀%d / ♂%d / 未判 %d)" % (p_n, g_f, g_m, p_n - g_f - g_m))
     print("galCount=%d (扣旧%d 加新%d)" % (m["galCount"], old_total, len(gal)))
 
 
