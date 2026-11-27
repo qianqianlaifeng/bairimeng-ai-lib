@@ -2,12 +2,18 @@ name: 即梦高频同步（含人像/性别重算）
 
 # 即梦探索页更新很快，但整站 refresh.yml 每晚只跑一次（要拖 1 小时+）。
 # 这里只跑即梦这一条链路：
-#   fetch_jimeng.py  抓探索页三个分类（签名直链有有效期，不重抓会 403）
-#   build_jimeng.py  重建分片 + 逐条重算「人像 / 性别」+ 出即梦人像包
-#   build_jimeng_packs.py  只重切即梦自己的分类首屏包（不动别的分类）
+#   fetch_jimeng.py          抓探索页三个分类（签名直链有有效期，不重抓会 403）
+#   build_jimeng.py          重建分片 + 逐条重算「人像 / 性别」+ 出即梦人像包
+#   build_jimeng_packs.py    只重切即梦自己的分类首屏包（不动别的分类）
+#   jimeng_diff_guard.py     防抖：只有作品/标签真的变了才提交
+#
 # 人像与性别随每次抓取重算：新增作品最晚 2 小时就进「即梦·人像」，
 # 不需要人工补标；人工逐张核过的 ID 由 tools/jimeng_portrait_labels.json 固化，
 # 刷新不会把它冲掉。
+#
+# 为什么需要防抖：即梦封面是带签名的直链，同一个作品每次抓取签名几乎都会变
+# （实测一轮 198 条里 104 条签名不同）。不设闸门的话每 2 小时就把分片整文件
+# 重写一遍，仓库几个月膨胀上百 MB，而这些都是同一张图的无效改动。
 on:
   schedule:
     - cron: '25 */2 * * *'   # 每 2 小时一次（UTC 偶数小时 25 分）
@@ -39,7 +45,21 @@ jobs:
           python tools/fetch_jimeng.py
           python tools/build_jimeng.py
           python tools/build_jimeng_packs.py data
+      - name: 内容防抖（仅签名变动则不提交）
+        id: guard
+        run: |
+          set +e
+          python tools/jimeng_diff_guard.py
+          code=$?
+          set -e
+          if [ $code -eq 3 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "本轮仅封面签名变动，跳过提交"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: 同步 data 版本号(缓存击穿)
+        if: steps.guard.outputs.skip != 'true'
         run: |
           python - <<'EOF'
           import hashlib, re
@@ -55,6 +75,7 @@ jobs:
           print('DATA_VER =', ver, '| config.js?v=' + h)
           EOF
       - name: 提交改动
+        if: steps.guard.outputs.skip != 'true'
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
