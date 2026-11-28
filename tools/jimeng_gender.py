@@ -77,8 +77,12 @@ FEM_EN = ["woman", "women", "girl", "female", "lady", "she", "her", "bride", "ac
 MAS_EN = ["man", "men", "boy", "male", "gentleman", "he", "his", "groom", "actor",
           "prince", "king", "dad", "father", "brother", "son"]
 
-MULTI = re.compile(r"多人|人群|情侣|夫妻|双人|两人|三人|一群|众人|路人|剪影|背影|"
+MULTI = re.compile(r"多人|人群|情侣|夫妻|夫妇|双人|两人|三人|一群|众人|路人|剪影|背影|"
+                   r"拥抱|环抱|相拥|"
                    r"group|couple|two people|back view|silhouette", re.I)
+
+# 成对的男女主体词（同一句里同时出现 = 画面里男女都有, 如「男孩…女孩…」四格）
+PAIRS = (("男孩", "女孩"), ("男人", "女人"), ("男生", "女生"), ("男子", "女子"))
 
 
 # 画风/文体词：含性别字但描述的是画风不是画面主体（「少年漫动感线条」「少年感」），
@@ -87,7 +91,9 @@ STYLE_WORDS = re.compile(r"少年[漫感风气]|少女[漫感风气]")
 
 
 def _neutralize(text):
-    return STYLE_WORDS.sub("画风", str(text or ""))
+    t = STYLE_WORDS.sub("画风", str(text or ""))
+    # 「其他/其它」里含代词「他」，会被误当男性证据（实测案例:「其他不变」）
+    return t.replace("其他", "另外").replace("其它", "另外")
 
 
 def _has(text, words, en_words):
@@ -114,6 +120,10 @@ def detect_gender(text):
         if m and not f:
             return "M"
         if f and m:
+            # 同一段里成对出现男女主体词（男孩…女孩 / 男人…女人 …）:
+            # 画面里男女都有, 不判性别 —— 宁可少分不分错。
+            if any(a in seg and b in seg for a, b in PAIRS):
+                return ""
             pf = min([seg.find(w) for w in FEM if w in seg] or [10 ** 9])
             pm = min([seg.find(w) for w in MAS if w in seg] or [10 ** 9])
             for w in FEM_EN:
