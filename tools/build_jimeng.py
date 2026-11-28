@@ -45,6 +45,24 @@ CAT_ICON = {
     "jimeng-影视作品": ["即梦·影视", "🎞️"],
 }
 
+# 人像包瘦身（与 build_catpack.py 同口径）：正文只留 90 字摘要（末尾带 …），
+# 点开卡片时前端 fetchFullBody 会按 id 去大分片取全文。数据量大后人像包
+# 若带全文会涨到几 MB，拖慢「即梦·人像」的打开速度。
+PACK_EXCERPT = 90
+PACK_TITLE = 40
+
+
+def slim(r):
+    row = list(r[:8])
+    row[1] = (r[1] or "")[:PACK_TITLE]
+    body = (r[2] or "")
+    row[2] = body[:PACK_EXCERPT] + ("…" if len(body) > PACK_EXCERPT else "")
+    if len(r) > 8:
+        row.append(r[8])
+    if len(r) > 9:
+        row.append(r[9])
+    return row
+
 
 def ts_to_date(ts):
     try:
@@ -139,7 +157,7 @@ def main():
     # ---- 「即梦·人像」首屏包 ----
     # 人像是跨三个分类抽出来的虚拟分类：平面设计/电商/其他里都有人物图。
     # 单独出一个包，点「即梦·人像」不用等全部分片就能出图（和分类首屏包同机制）。
-    portrait_rows = [r for r in gal if len(r) > 8 and r[8]]
+    portrait_rows = [slim(r) for r in gal if len(r) > 8 and r[8]]
     with open(os.path.join(DATA, "jimeng_portrait.json"), "w", encoding="utf-8") as f:
         json.dump(portrait_rows, f, ensure_ascii=False, separators=(",", ":"))
 

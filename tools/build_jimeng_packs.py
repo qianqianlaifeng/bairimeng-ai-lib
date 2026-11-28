@@ -18,6 +18,23 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(HERE), "data")
 CAT_LIMIT = 150     # 即梦单个分类条数不多, 一次给够
 
+# 首屏包瘦身（与 build_catpack.py 同口径）：正文留 90 字摘要(带 …)，
+# 点开卡片时前端按 id 去大分片取全文。注意保留第 9/10 字段(人像/性别)。
+EXCERPT_MAX = 90
+TITLE_MAX = 40
+
+
+def slim(r):
+    row = list(r[:8])
+    row[1] = (r[1] or "")[:TITLE_MAX]
+    body = (r[2] or "")
+    row[2] = body[:EXCERPT_MAX] + ("…" if len(body) > EXCERPT_MAX else "")
+    if len(r) > 8:
+        row.append(r[8])
+    if len(r) > 9:
+        row.append(r[9])
+    return row
+
 
 def slug(cat):
     return "cp_" + hashlib.md5(cat.encode("utf-8")).hexdigest()[:10]
@@ -48,7 +65,7 @@ def main():
     for cat, items in by_cat.items():
         name = slug(cat)
         with open(os.path.join(DATA, name + ".json"), "w", encoding="utf-8") as f:
-            json.dump(items[:CAT_LIMIT], f, ensure_ascii=False, separators=(",", ":"))
+            json.dump([slim(r) for r in items[:CAT_LIMIT]], f, ensure_ascii=False, separators=(",", ":"))
         pack[cat] = name
         written += 1
 
