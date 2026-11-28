@@ -6,7 +6,11 @@
      —— 按作品 ID 存，刷新不会冲掉（即梦数据每天重抓，ID 稳定）。
   2) 视觉模型逐张看封面打出的标签  tools/jimeng_vision_labels.json
      —— 数据量大时的主要来源，由 tools/vision_label_jimeng.py 生成。
-  3) 文案兜底（标题 + 提示词）。只用来**收窄**候选池，判定口径刻意保守：
+  3) 性别识别模型的高置信输出  tools/jimeng_model_gender.json
+     —— 只在人脸检测+对齐后性别置信度足够高才给 F/M
+        （274 条真值上 |d|>=3.0 档实测准确率 92.7% / 覆盖 50%），
+        置信不足的一律留空。由 tools/gender_model_label.py 生成。
+  4) 文案兜底（标题 + 提示词）。只用来**收窄**候选池，判定口径刻意保守：
      宁可漏几条，也不要把商品图/海报塞进人像（人像里混错图比少几条更伤）。
 
 判定口径：
@@ -26,6 +30,7 @@ import re
 HERE = os.path.dirname(os.path.abspath(__file__))
 LABELS = os.path.join(HERE, "jimeng_portrait_labels.json")
 VISION = os.path.join(HERE, "jimeng_vision_labels.json")
+MODEL = os.path.join(HERE, "jimeng_model_gender.json")
 
 # ---------- 明确不是人像 ----------
 # 命中即否决（除非同时出现强人像词，见下）
@@ -146,6 +151,7 @@ def guess(title, prompt):
 
 _cache = {"mtime": None, "data": {}}
 _vcache = {"mtime": None, "data": {}}
+_mcache = {"mtime": None, "data": {}}
 
 
 def _load(path, cache):
@@ -174,12 +180,23 @@ def load_vision():
     return _load(VISION, _vcache)
 
 
+def load_model():
+    """性别识别模型的高置信输出（第三优先级，只给性别）。"""
+    return _load(MODEL, _mcache)
+
+
 def label_for(rid, title, prompt):
-    """人工 > 视觉模型 > 文案兜底。"""
+    """人工 > 视觉模型 > 性别识别模型 > 文案兜底。"""
     lab = load_labels().get(rid)
     if isinstance(lab, dict):
         return int(lab.get("portrait") or 0), str(lab.get("gender") or "")
     vis = load_vision().get(rid)
     if isinstance(vis, dict):
         return int(vis.get("portrait") or 0), str(vis.get("gender") or "")
-    return guess(title, prompt)
+    p, g = guess(title, prompt)
+    if not g:
+        m = load_model().get(rid)
+        if isinstance(m, dict) and m.get("gender") in ("F", "M"):
+            # 性别识别模型只补性别；是否人像仍由文案层决定。
+            g = m["gender"]
+    return p, g
