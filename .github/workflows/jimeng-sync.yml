@@ -31,6 +31,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # 探索页只展示近期作品：原始抓取结果跨运行持久化，新作品增量并入，
+      # 已下线的老作品才不会每轮被清掉（与本地抓取的"历史保留"逻辑一致）。
+      - uses: actions/cache@v4
+        with:
+          path: .cache/jimeng_raw.json
+          key: jimeng-raw-${{ github.run_id }}
+          restore-keys: jimeng-raw-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

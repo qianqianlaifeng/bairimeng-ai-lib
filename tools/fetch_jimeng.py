@@ -67,7 +67,7 @@ SCROLL_JS = """()=>{
 
 def parse_args():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--max-rounds", type=int, default=200,
+    ap.add_argument("--max-rounds", type=int, default=500,
                     help="每个分类最多滚动多少轮(每轮等 1 页)")
     ap.add_argument("--idle-stop", type=int, default=10,
                     help="连续多少轮没有新增就认为到底")

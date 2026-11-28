@@ -69,22 +69,34 @@ def signature(rows):
 
 def main():
     force = "--force" in sys.argv
-    path = os.path.join(DATA, "jimeng_gal_0.json")
-    if not os.path.exists(path):
+    paths = sorted(
+        os.path.relpath(os.path.join(dp, f), ROOT).replace("\\", "/")
+        for dp, _dn, fn in os.walk(DATA) for f in fn
+        if f.startswith("jimeng_gal_") and f.endswith(".json"))
+    if not paths:
         print("!! 没有即梦分片, 交给后面步骤处理")
         return 0
-    new = json.load(open(path, encoding="utf-8"))
-    old = git_show(REF, "data/jimeng_gal_0.json")
-    if old is None:
+    new_rows = []
+    for p in paths:
+        new_rows.extend(json.load(open(os.path.join(ROOT, p), encoding="utf-8")))
+    old_rows = []
+    any_old = False
+    for p in paths:
+        rows = git_show(REF, p)
+        if rows is not None:
+            any_old = True
+            old_rows.extend(rows)
+    if not any_old:
         print("仓库里没有旧的即梦分片（首次接入），直接提交")
         return 0
 
-    sn, so = signature(new), signature(old)
+    sn = signature(new_rows)
+    so = signature(old_rows)
     added = set(sn) - set(so)
     removed = set(so) - set(sn)
     changed = [k for k in set(sn) & set(so) if sn[k] != so[k]]
 
-    exp_old = min_expiry(old)
+    exp_old = min_expiry(old_rows)
     days_left = (exp_old - time.time()) / 86400 if exp_old else 999
     print("作品: 新增 %d / 下线 %d / 内容变化 %d | 旧签名剩余 %.1f 天"
           % (len(added), len(removed), len(changed), days_left))
