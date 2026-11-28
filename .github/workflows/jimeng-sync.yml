@@ -91,5 +91,8 @@ jobs:
             echo "即梦数据无变化"
           else
             git commit -m "chore: 同步即梦作品并重算人像/性别"
-            git push
+            # 抓取要跑一个多小时, 期间远端可能被推进(人工补标签等),
+            # 先变基再推; data/ 与 tools/ 不重叠, 变基不会冲突。
+            git pull --rebase origin main || git rebase --abort || true
+            git push || (sleep 20 && git pull --rebase origin main || true && git push)
           fi
