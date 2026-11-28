@@ -456,6 +456,9 @@
       source: 'gal', fb: 'assets/img/cat-others.jpg', refs: r[6] || [],
       /* KOOK 三个最新分类在快照里补了第 8 字段: 发布时间 YYYY-MM-DD */
       time: r[7] || '',
+      /* 首屏包只带 ~90 字摘要(为了把首屏数据从 421KB 压到 91KB),
+         点开卡片时再按 id 取全文。带省略号 = 这是摘要。 */
+      slim: /…$/.test(String(r[2] || '')),
       jimeng: isJm,
       /* 人像标记只在数据层明确给了 0/1 时生效; 其他来源为 undefined(走原有标题兜底逻辑) */
       portraitFlag: isJm ? (r[8] === 1 ? 1 : (r[8] === 0 ? 0 : null)) : null,
@@ -1283,7 +1286,21 @@
         '带参考图的卡片上有 <b>「风格参考」</b> 红色标记，也可以用工具栏的 <b>「✦ 只看风格参考」</b> 直接筛。</div>';
 
     $('#mBodyLabel').textContent = p.isJson ? '提示词全文（JSON，已格式化）' : '提示词全文';
-    $('#mBody').innerHTML = bodyHtml(p);
+    /* 首屏包为了省流量不带正文(120 条 x 2KB 会把首屏数据拖到 400KB+)。
+       点开卡片时才按 id 去分片里取全文: 先给占位, 取到再替换。 */
+    if (!p.body || p.slim) {
+      $('#mBody').innerHTML = '<div class="prompt-text body-loading"><span class="spin"></span>' +
+        '正在载入完整提示词…</div>';
+      fetchFullBody(p).then(function (full) {
+        if (state.openId !== p.id) return;      // 用户已经切到别的卡片了
+        if (full) $('#mBody').innerHTML = bodyHtml(p);
+        else $('#mBody').innerHTML = '<div class="prompt-text">' +
+          '这条的完整提示词还在后面的分片里，未取到。可以稍等一下再点开，或点「加载更多」把数据补全。' +
+          '</div>';
+      });
+    } else {
+      $('#mBody').innerHTML = bodyHtml(p);
+    }
 
     // 无声片要讲清楚, 否则用户会以为是播放器坏了
     $('#mAudio').innerHTML = (p.kind === 'video' && p.videoUrl)
@@ -1315,6 +1332,58 @@
 
   /* ---------- 举报 / 纠错面板 ---------- */
   var reportId = '';
+  /* 首屏包不带正文 -> 按 id 去当前页签的分片里补齐全文。
+     命中一次就写回对象, 同一张卡片再点开不用重复请求。 */
+  var bodyInflight = {};
+  function fetchFullBody(p) {
+    if (!p || p.kind !== 'image' || !p.gal) return Promise.resolve(null);
+    if (p.body && !p.slim) return Promise.resolve(p);   // 已经是全文, 不用再取
+    if (bodyInflight[p.id]) return bodyInflight[p.id];
+    var list = shards(state.tab);
+    // 即梦条目只在 jimeng_gal_* 里; 其余按分类前缀挑, 挑不到就全量找
+    var prefer = isJimengKey(p.cat) ? /^jimeng_gal_/
+      : (isKookKey(p.cat) ? /^kook_image_/ : /.*/);
+    var order = list.filter(function (d) { return prefer.test(d.f); })
+                    .concat(list.filter(function (d) { return !prefer.test(d.f); }));
+    var pr = new Promise(function (resolve) {
+      var i = 0, active = 0, done = false, MAX = 3;
+      function next() {
+        if (done) return;
+        while (active < MAX && i < order.length) {
+          var d = order[i++];
+          active++;
+          (function (dd) {
+            fetch(dataUrl(dd.f + '.json')).then(function (r) {
+              return r.ok ? r.json() : null;
+            }).catch(function () { return null; }).then(function (rows) {
+              active--;
+              if (done) return;
+              if (rows) {
+                for (var k = 0; k < rows.length; k++) {
+                  if (rows[k][0] === p.id) {
+                    var row = rows[k];
+                    p.body = row[2] || '';
+                    p.chars = p.body.length;
+                    p.refs = row[6] || p.refs || [];
+                    if (row[7]) p.time = row[7];
+                    done = true; resolve(p);
+                    return;
+                  }
+                }
+              }
+              if (active === 0 && i >= order.length) { done = true; resolve(null); return; }
+              next();
+            });
+          })(d);
+        }
+        if (active === 0) { done = true; resolve(null); }
+      }
+      next();
+    });
+    bodyInflight[p.id] = pr;
+    return pr;
+  }
+
   function findItem(id) {
     var t = state.tab;
     var arr = state[t] || [];
@@ -2353,7 +2422,29 @@
     // 一进页就给加载态: 数据在路上时用户看到转圈, 而不是一片空白以为站坏了
     busy(true, '正在加载首屏数据…');
     var mctl = (window.AbortController) ? new AbortController() : null;
-    timedFetch(dataUrl('manifest.json'), mctl).then(function (m) {
+    /* manifest 已内联在 index.html 里(23KB), 首屏不必再等它一个往返 ——
+       国内直连 github.io 这次往返实测 1~7 秒, 是"打开很久"的主因。
+       内存里这份立即用于渲染; 同时后台再拉一次做校正(数据刚更新时用得上)。 */
+    var inline = window.__MANIFEST_INLINE;
+    if (inline && inline.galCats) {
+      start(inline);
+      // 后台校正: 拿到新 manifest 后只更新计数/分类元信息, 不重绘首屏
+      timedFetch(dataUrl('manifest.json'), mctl).then(function (m2) {
+        if (!m2 || !m2.galCats) return;
+        if (m2.packsSig && inline.packsSig && m2.packsSig !== inline.packsSig) {
+          state.manifest = m2;      // 数据换了一批(例如每日刷新刚跑完): 后续请求用新的分片号
+          stats(); buildCategories();
+        }
+      }).catch(function () {});
+      return;
+    }
+    timedFetch(dataUrl('manifest.json'), mctl).then(start).catch(function (e) {
+      $('#grid').innerHTML = '<div class="empty"><strong>数据加载失败</strong>' +
+        '请刷新页面重试。</div>';
+      console.error(e);
+    });
+
+    function start(m) {
       state.manifest = m;
       var start = tabFromUrl() || 'gal';
       state.tab = start;
@@ -2382,11 +2473,7 @@
         loadTab(start, afterTab);    // 其他页签分片少, 仍取第 0 片 + 后台渐进拉取
         setTimeout(function () { warmupCatPacks(m); }, 1200);
       }
-    }).catch(function (e) {
-      $('#grid').innerHTML = '<div class="empty"><strong>数据加载失败</strong>' +
-        '请刷新页面重试。</div>';
-      console.error(e);
-    });
+    }
   }
 
   boot();

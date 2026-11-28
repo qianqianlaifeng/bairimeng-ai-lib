@@ -3,22 +3,25 @@
 """
 抓取即梦(jimeng.jianying.com)探索页三个图片分类: 平面设计 / 电商 / 其他。
 
-修复的根因(2026-11-20 第二次重写):
-  页面会并发请求多个 category_id, 旧版把"没认出来的 cid"按"当前点着的页签"
-  兜底打标, 于是别的分类的图被贴上了当前页签的标签 -> 图片和分类对不上。
+2026-11-28 修复(关键):
+  旧版用 page.mouse.wheel() 滚动 —— 但即梦探索页的内容区是**内层滚动容器**
+  (.scroll-container), 页面本身不滚动(body scrollHeight 恒等于视口高度)。
+  于是 wheel 事件滚不动列表, 每个分类只截到首屏 6 屏的数据:
+  「其他」只拿到 56 条, 而实际有 2000+ 条。
 
-  本版做法(两遍式, 严格按 cid 归属):
-    第1遍 发现: 逐个点击 页签/子分类, 记录"点击后新出现的 category_id",
-                即得到 权威的 cid -> 分类 映射。
-    第2遍 收集: 再次逐个点击, 只收该分类自己 cid 的响应, 其余一律丢弃。
-    最后再按 cid 白名单过滤一次, 保证没有串类。
+  修法: 直接把内层容器的 scrollTop 推到底, 并等 get_explore 返回新一页;
+  连续 N 轮无新增就停。实测「其他」可拿 2158 条、「平面设计」2438 条、
+  「电商」1617 条。
 
+分类归属仍按 cid 白名单(两遍式):
+  第1遍 逐个点击 页签/子分类, 记录"点击后新出现的 category_id" -> cid 归属;
+  第2遍 逐个点击并滚动, 只收该分类自己 cid 的响应, 其余一律丢弃。
 只收 effect_type == 9(真图片作品, 带 text2image_params.prompt)。
-209 是音色样本、210 是视频, 都不收。
 
 用法:
-  python tools/fetch_jimeng.py
-  python tools/fetch_jimeng.py --max-scroll 6
+  python tools/fetch_jimeng.py                 # 默认每个分类滚到不再增长
+  python tools/fetch_jimeng.py --max-rounds 60 # 限流调试
+  python tools/fetch_jimeng.py --pages 30      # 只抓前 30 页/分类(快速刷新)
 """
 import os
 import sys
@@ -33,7 +36,7 @@ OUT = os.path.join(CACHE, "jimeng_raw.json")
 
 EXPLORE_URL = "https://jimeng.jianying.com/ai-tool/explore"
 
-# 三个图片分类及其子分类(实测 2026-11-20)
+# 三个图片分类及其子分类(实测)
 TARGETS = [
     ("平面设计", ["海报", "品牌设计"]),
     ("电商", ["电商头图", "商品展示"]),
@@ -41,14 +44,41 @@ TARGETS = [
 ]
 IMG_EFFECT_TYPES = (9,)
 
+# 实测 cid 兜底(自动发现失败时用)
+FALLBACK = {
+    "19442373123084": "平面设计", "19442373124108": "平面设计",
+    "19442373125132": "电商", "19442373126156": "电商",
+    "11222": "其他",
+}
+
+# 滚到底: 找内容最深的内层滚动容器, 推到底
+SCROLL_JS = """()=>{
+  let best=null;
+  document.querySelectorAll('div').forEach(e=>{
+    if (e.scrollHeight > e.clientHeight + 200 && e.clientHeight > 200) {
+      if (!best || (e.scrollHeight-e.clientHeight) > (best.scrollHeight-best.clientHeight)) best=e;
+    }
+  });
+  if (best) { best.scrollTop = best.scrollHeight; return best.scrollHeight; }
+  window.scrollTo(0, document.body.scrollHeight);
+  return document.body.scrollHeight;
+}"""
+
 
 def parse_args():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--max-scroll", type=int, default=6)
+    ap.add_argument("--max-rounds", type=int, default=200,
+                    help="每个分类最多滚动多少轮(每轮等 1 页)")
+    ap.add_argument("--idle-stop", type=int, default=10,
+                    help="连续多少轮没有新增就认为到底")
+    ap.add_argument("--pages", type=int, default=0,
+                    help="只抓每个分类的前 N 页(0=滚到底)")
+    ap.add_argument("--only", default="",
+                    help="只抓指定分类(逗号分隔, 如 电商,其他); 结果合并进已有缓存")
     return ap.parse_args()
 
 
-def extract(item):
+def extract(item, cat):
     ca = item.get("common_attr") or {}
     if ca.get("effect_type") not in IMG_EFFECT_TYPES:
         return None
@@ -71,13 +101,14 @@ def extract(item):
         "ctime": ca.get("create_time") or 0,
         "width": ca.get("cover_width") or 0,
         "height": ca.get("cover_height") or 0,
+        "cat": "jimeng-" + cat,
     }
 
 
 def click_text(page, name, ymin, ymax, xmin=0):
     return page.evaluate(
         """(a)=>{const [n,lo,hi,xm]=a;
-          const els=[...document.querySelectorAll('span,button,a')].filter(e=>(e.innerText||'').trim()===n);
+          const els=[...document.querySelectorAll('span,button,a,div')].filter(e=>(e.innerText||'').trim()===n);
           for(const e of els){const r=e.getBoundingClientRect();
             if(r.y>lo&&r.y<hi&&r.x>=xm&&r.width>5){e.click();return true;}}
           return false;}""",
@@ -89,14 +120,15 @@ def main():
     os.makedirs(CACHE, exist_ok=True)
     from playwright.sync_api import sync_playwright
 
-    req_cids = []          # 观察到的 cid 顺序(用于"新出现"检测)
-    resp_by_cid = {}       # cid -> [items]
+    req_cids = []
+    resp_by_cid = {}
+    page_meta = {}      # cid -> 已合并页数
 
     def on_request(req):
         if "get_explore" not in req.url:
             return
         try:
-            b = json.loads(req.request.post_data) if req.post_data else {}
+            b = json.loads(req.request.post_data) if req.request.post_data else {}
         except Exception:
             return
         cid = b.get("category_id")
@@ -117,84 +149,120 @@ def main():
             d = resp.json()
         except Exception:
             return
-        items = (d.get("data", {}) or {}).get("item_list", [])
+        data = d.get("data", {}) or {}
+        items = data.get("item_list", []) or []
         if items:
             resp_by_cid.setdefault(str(cid), []).extend(items)
+            page_meta[str(cid)] = page_meta.get(str(cid), 0) + 1
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(channel="chrome", headless=True, timeout=30000)
-        ctx = browser.new_context(viewport={"width": 1440, "height": 1000})
-        page = ctx.new_page()
-        page.on("request", on_request)
-        page.on("response", on_response)
-        try:
-            page.goto(EXPLORE_URL, wait_until="domcontentloaded", timeout=45000)
-        except Exception as e:
-            print("打开页面超时(可能已加载):", str(e)[:80])
-        try:
-            page.get_by_text("平面设计", exact=True).first.wait_for(state="visible", timeout=30000)
-        except Exception:
-            print("!! 分类栏 30s 未出现, 可能被风控")
-        time.sleep(3)
+        browser = p.chromium.launch(channel="chrome", headless=True, timeout=40000)
+
+        def new_page():
+            ctx = browser.new_context(viewport={"width": 1440, "height": 1000},
+                                      user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                                  "Chrome/120.0.0.0 Safari/537.36"))
+            pg = ctx.new_page()
+            pg.on("request", on_request)
+            pg.on("response", on_response)
+            # 连开几个上下文时站点会限速, goto 偶尔 60s 超时 -> 退避重试
+            last_err = None
+            for attempt in range(4):
+                try:
+                    pg.goto(EXPLORE_URL, wait_until="domcontentloaded", timeout=90000)
+                    last_err = None
+                    break
+                except Exception as e:
+                    last_err = e
+                    print("  打开超时(第%d次), 退避 %ds" % (attempt + 1, 15 * (attempt + 1)))
+                    time.sleep(15 * (attempt + 1))
+            if last_err:
+                raise last_err
+            try:
+                pg.get_by_text("平面设计", exact=True).first.wait_for(state="visible", timeout=60000)
+            except Exception:
+                print("!! 分类栏 60s 未出现, 可能被风控")
+            time.sleep(5)
+            return ctx, pg
 
         # ---------- 第1遍: 发现 cid -> 分类 ----------
         cid2cat = {}
+        ctx, page = new_page()
         for tab, subs in TARGETS:
             for sub in ([None] + list(subs)):
                 before = set(req_cids)
-                if sub is None:
-                    ok = click_text(page, tab, 40, 130)
-                else:
-                    ok = click_text(page, sub, 95, 200)
-                time.sleep(4.5)
-                new = set(req_cids) - before
-                for c in new:
+                ok = click_text(page, tab, 40, 140) if sub is None else click_text(page, sub, 95, 200)
+                time.sleep(3)
+                for c in set(req_cids) - before:
                     cid2cat.setdefault(c, tab)
-                label = tab if sub is None else "%s/%s" % (tab, sub)
-                print("发现 %-14s 新 cid: %s (click=%s)" % (label, sorted(new), ok))
-
-        # 兜底: 已知实测 cid
-        FALLBACK = {
-            "19442373123084": "平面设计", "19442373124108": "平面设计",
-            "19442373125132": "电商", "19442373126156": "电商",
-            "11222": "其他",
-        }
+        ctx.close()
         for c, cat in FALLBACK.items():
             cid2cat.setdefault(c, cat)
-        print("\ncid -> 分类:", json.dumps(cid2cat, ensure_ascii=False))
+        print("cid -> 分类:", json.dumps(cid2cat, ensure_ascii=False))
 
-        # ---------- 第2遍: 按分类滚动收集 ----------
+        # ---------- 第2遍: 每个分类各开一个新页面滚到底 ----------
+        # 切换页签复用一个页面时, 列表经常没真正重置(实测「电商」切换后 0 页),
+        # 所以每个分类用独立浏览器上下文, 保证从该分类第一页重新加载。
         rows = {}
+        only = [x.strip() for x in args.only.split(",") if x.strip()]
         for tab, subs in TARGETS:
-            for sub in ([None] + list(subs)):
-                if sub is None:
-                    click_text(page, tab, 40, 130)
+            if only and tab not in only:
+                continue
+            want = {c for c, cat in cid2cat.items() if cat == tab}
+            before_pages = {c: page_meta.get(c, 0) for c in want}
+            ctx, page = new_page()
+            # 只点主分类: 点过子分类后, 滚动加载的是"子分类的游标", 主分类会少拿
+            # 一大截(实测平面设计 1434 vs 2438)。子分类本身是主分类的子集, 不需要单独抓。
+            ok = click_text(page, tab, 40, 140)
+            time.sleep(4.0)
+            idle = 0
+            rounds = 0
+            last_got = 0
+            for i in range(args.max_rounds):
+                rounds = i + 1
+                page.evaluate(SCROLL_JS)
+                time.sleep(1.0)
+                now = sum(page_meta.get(c, 0) - before_pages.get(c, 0) for c in want)
+                if now == last_got:
+                    idle += 1
+                    if idle >= args.idle_stop:
+                        break
                 else:
-                    click_text(page, sub, 95, 200)
-                time.sleep(3.5)
-                for _ in range(args.max_scroll):
-                    page.mouse.wheel(0, 2600)
-                    time.sleep(1.7)
-            # 只留属于该 tab 的 cid
-            good = [c for c in resp_by_cid if cid2cat.get(c) == tab]
-            n = 0
-            for c in good:
-                for it in resp_by_cid[c]:
-                    r = extract(it)
+                    idle = 0
+                    last_got = now
+                if args.pages and now >= args.pages:
+                    break
+            got_pages = sum(page_meta.get(c, 0) - before_pages.get(c, 0) for c in want)
+            uniq = set()
+            for c in want:
+                for it in resp_by_cid.get(c, []):
+                    r = extract(it, tab)
                     if r:
-                        r["cat"] = "jimeng-" + tab
                         r["cid"] = c
-                        rows.setdefault(r["id"], r)
-                        n += 1
-            print("分类[%s] 采集 %d 条 (cid %s)" % (tab, n, good))
+                        rows[r["id"]] = r
+                        uniq.add(r["id"])
+            print("分类[%-4s] click=%s 滚动%d轮 拉页%d 唯一图%d (cid %s)"
+                  % (tab, ok, rounds, got_pages, len(uniq), sorted(want)))
+            ctx.close()
         browser.close()
 
     out = sorted(rows.values(), key=lambda r: (r.get("ctime") or 0), reverse=True)
+
+    # 分分类落盘: 分批抓(规避站点限速)时, 各分类互不覆盖, 最后再合并。
+    if only:
+        from collections import Counter as _C
+        for tab in only:
+            part = [r for r in out if r["cat"] == "jimeng-" + tab]
+            fp = os.path.join(CACHE, "jimeng_part_%s.json" % tab)
+            json.dump(part, open(fp, "w", encoding="utf-8"), ensure_ascii=False)
+            print("已落盘 %s: %d 条 -> %s" % (tab, len(part), fp))
+        out = [r for r in out if r["cat"].replace("jimeng-", "") in only]
+
     if not out and os.path.exists(OUT):
         print("!! 本轮 0 条, 保留旧缓存")
         return
 
-    # 白名单复核: 任何 cid 不在映射里的, 一律剔除
     bad = [r for r in out if r.get("cid") not in cid2cat]
     if bad:
         print("!! 剔除无归属 %d 条" % len(bad))
@@ -202,9 +270,24 @@ def main():
 
     from collections import Counter
     cc = Counter(r["cat"] for r in out)
+    # 增量合并: 探索页只保留近期作品, 已下线但仍在库里的历史条目保留下来,
+    # 否则每次刷新都会让库缩水(用户看到的"怎么越来越少")。
+    old = {}
+    if os.path.exists(OUT):
+        try:
+            for r in json.load(open(OUT, encoding="utf-8")):
+                old[r["id"]] = r
+        except Exception:
+            old = {}
+    fresh = {r["id"]: r for r in out}
+    merged = dict(old)
+    merged.update(fresh)          # 新抓的覆盖旧记录(签名/标题可能更新)
+    out = sorted(merged.values(), key=lambda r: (r.get("ctime") or 0), reverse=True)
+
     json.dump(out, open(OUT, "w", encoding="utf-8"), ensure_ascii=False)
-    print("\n总计 %d 条 -> %s" % (len(out), OUT))
-    print("分类分布:", dict(cc))
+    print("\n本轮抓到 %d 条 (其中历史保留 %d 条) -> %s"
+          % (len(fresh), len(out) - len(fresh), OUT))
+    print("分类分布:", dict(Counter(r["cat"] for r in out)))
     print("有独立提示词: %d 条" % sum(1 for r in out if r["prompt"] and r["prompt"] != r["title"]))
     with open(os.path.join(CACHE, "jimeng_cidmap.json"), "w", encoding="utf-8") as f:
         json.dump(cid2cat, f, ensure_ascii=False, indent=1)
