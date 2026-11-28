@@ -39,6 +39,7 @@ NOT_PERSON = re.compile(
     r"logo|标志设计|字体设计|书法|毛笔字|艺术字|字体海报|"
     r"海报设计|宣传海报|活动海报|版式|排版|画册|折页|易拉宝|信息图|长图|"
     r"产品摄影|产品图|商品图|静物|白底图|详情页|电商主图|卖点图|包装设计|"
+    r"手办|盲盒|潮玩|公仔|泡泡玛特|人偶|贴纸|"
     r"建筑|室内设计|空间渲染|景观|风景|山川|海景|城市|街道|"
     r"图标|icon|表情包|壁纸|纹理|材质|"
     r"\bcat\b|\bdog\b|猫咪|猫粮|小猫|狗狗|动物|神兽|龙|机甲|机器人|"
@@ -56,7 +57,7 @@ PERSON_STRONG = re.compile(
 PERSON_WORD = re.compile(
     r"女人|男人|女孩|男孩|女性|男性|少女|少年|女子|男子|美女|美人|帅哥|"
     r"姑娘|小伙|新娘|新郎|夫人|王子|公主|女王|国王|战士|仙女|精灵|舞者|歌手|演员|"
-    r"模特|人物|人像|肖像|老人|小孩|儿童|婴儿|小姐姐|"
+    r"模特|人物|人像|肖像|老人|小孩|儿童|婴儿|小姐姐|辣妹|御姐|熟女|"
     r"woman|women|man\b|men\b|girl|boy|female|male|model|lady|gentleman|person|people",
     re.I)
 
@@ -66,7 +67,8 @@ LAYOUT = re.compile(r"主标题|副标题|标题字|文案|标语|留白|信息�
 
 FEM = ["女性", "女人", "女孩", "女生", "女子", "女士", "少女", "美女", "美人", "女神",
        "姑娘", "新娘", "妈妈", "母亲", "姐姐", "妹妹", "阿姨", "奶奶", "外婆", "女儿",
-       "妻子", "老婆", "大小姐", "御姐", "空姐", "护士", "少女感", "她", "姐妹"]
+       "妻子", "老婆", "大小姐", "御姐", "空姐", "护士", "少女感", "她", "姐妹",
+       "辣妹", "熟女", "剩女", "美少女"]
 MAS = ["男性", "男人", "男孩", "男生", "男子", "男士", "少年", "帅哥", "美男", "小伙",
        "大叔", "老头", "大爷", "爷爷", "爸爸", "父亲", "哥哥", "弟弟", "叔叔", "儿子",
        "新郎", "老先生", "他", "兄弟", "小伙儿"]
@@ -77,6 +79,15 @@ MAS_EN = ["man", "men", "boy", "male", "gentleman", "he", "his", "groom", "actor
 
 MULTI = re.compile(r"多人|人群|情侣|夫妻|双人|两人|三人|一群|众人|路人|剪影|背影|"
                    r"group|couple|two people|back view|silhouette", re.I)
+
+
+# 画风/文体词：含性别字但描述的是画风不是画面主体（「少年漫动感线条」「少年感」），
+# 判定前先中性化，否则会把「辣妹」这种女性题材误判成男（实测案例 jm-7710200479195729214）。
+STYLE_WORDS = re.compile(r"少年[漫感风气]|少女[漫感风气]")
+
+
+def _neutralize(text):
+    return STYLE_WORDS.sub("画风", str(text or ""))
 
 
 def _has(text, words, en_words):
@@ -91,7 +102,7 @@ def _has(text, words, en_words):
 
 def detect_gender(text):
     """返回 'F' / 'M' / ''。主语区（前 40 字）优先，其次全文。"""
-    t = str(text or "")
+    t = _neutralize(text)
     if not t:
         return ""
     head = t[:40]
@@ -127,8 +138,8 @@ def _strip_negative(body):
 
 def guess(title, prompt):
     """保守的文案判定 -> (portrait:int, gender:str)。认不出返回 (0, '')。"""
-    title = str(title or "")
-    body = _strip_negative(prompt)[:400]
+    title = _neutralize(title)
+    body = _neutralize(_strip_negative(prompt))[:400]
     t40 = title[:40]
     head = body[:80]
     text = title + " " + body
